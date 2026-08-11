@@ -1,0 +1,3460 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>轻量化聊天室</title>
+<style>
+  :root {
+    --bg: #f5f7fa; --panel: #ffffff; --border: #e4e7eb;
+    --text: #1f2933; --text-muted: #7b8794;
+    --accent: #3b82f6; --accent-dark: #2563eb;
+    --bubble-me: #3b82f6; --bubble-other: #eef1f5;
+    --bubble-me-text: #fff; --bubble-other-text: #1f2933;
+    --danger: #ef4444; --ok: #10b981; --warn: #f59e0b;
+    --admin: #8b5cf6;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; min-height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg); color: var(--text);
+    display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 16px; background: var(--panel);
+    border-bottom: 1px solid var(--border); flex-shrink: 0;
+    min-height: 56px;
+  }
+  header h1 { font-size: 16px; font-weight: 600; }
+  .header-right { display: flex; align-items: center; gap: 14px; position: relative; }
+  .admin-badge {
+    font-size: 11px; color: #fff; background: var(--admin);
+    padding: 2px 8px; border-radius: 8px; font-weight: 600; display: none;
+  }
+  .admin-badge.show { display: inline-block; }
+  .admin-btn {
+    font-size: 13px; color: #fff; background: var(--admin);
+    padding: 6px 14px; border-radius: 10px; cursor: pointer; display: none;
+    border: none; font-weight: 600; transition: background .15s;
+  }
+  .admin-btn.show { display: inline-block; }
+  .admin-btn:hover { background: #7c3aed; }
+  .logout-btn {
+    font-size: 13px; color: var(--danger); background: rgba(239,68,68,0.1);
+    padding: 6px 14px; border-radius: 10px; cursor: pointer; display: none;
+    border: none; font-weight: 600; transition: background .15s;
+  }
+  .logout-btn:hover { background: var(--danger); color: #fff; }
+  .online-wrap { position: relative; }
+  .online-count {
+    font-size: 12px; color: var(--accent); font-weight: 600;
+    background: rgba(59,130,246,0.1); padding: 3px 10px; border-radius: 10px;
+    white-space: nowrap; cursor: pointer; user-select: none;
+  }
+  .online-count:hover { background: rgba(59,130,246,0.18); }
+  .online-count.open { background: rgba(59,130,246,0.22); }
+  .user-panel {
+    position: absolute; top: calc(100% + 8px); right: 0;
+    min-width: 200px; max-width: 280px; background: var(--panel);
+    border: 1px solid var(--border); border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.12); z-index: 50; overflow: hidden;
+  }
+  .user-panel.hidden { display: none; }
+  .user-panel-header {
+    font-size: 12px; color: var(--text-muted); padding: 10px 14px;
+    border-bottom: 1px solid var(--border); font-weight: 600;
+  }
+  .user-panel-search {
+    width: calc(100% - 24px); margin: 8px 12px; display: block;
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 5px 10px; font-size: 12px; outline: none; background: var(--bg); color: var(--text);
+  }
+  .user-panel-search:focus { border-color: var(--accent); }
+  #user-list { list-style: none; max-height: 220px; overflow-y: auto; padding: 4px 0; }
+  #user-list li {
+    padding: 8px 14px; font-size: 13px; display: flex; align-items: center; gap: 8px;
+    word-break: break-all; cursor: pointer; transition: background .12s;
+  }
+  #user-list li:hover { background: rgba(59,130,246,0.06); }
+  #user-list li .me-tag {
+    font-size: 10px; color: var(--accent); font-weight: 600;
+    background: rgba(59,130,246,0.12); padding: 1px 6px; border-radius: 6px; margin-left: auto;
+  }
+  #user-list li .pm-hint { font-size: 11px; color: var(--text-muted); margin-left: 6px; }
+  #user-list li .u-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex-shrink: 0; }
+  .status { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); }
+  .dot.ok { background: var(--ok); } .dot.connecting { background: var(--warn); }
+
+  /* 主布局:侧边栏 + 主内容区 */
+  #main-wrap { display: flex; flex: 1 1 auto; min-height: 0; overflow: hidden; }
+  #main-content { flex: 1 1 auto; display: flex; flex-direction: column; overflow: hidden; min-width: 0; min-height: 0; }
+  #sidebar {
+    width: 220px; flex-shrink: 0; background: var(--panel);
+    border-right: 1px solid var(--border); display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  #sidebar-header { padding: 10px 10px; border-bottom: 1px solid var(--border); }
+  #sidebar-add-room {
+    width: 100%; border: none; border-radius: 8px; padding: 9px;
+    font-size: 13px; cursor: pointer; background: var(--accent); color: #fff;
+    font-weight: 600; transition: background .15s;
+  }
+  #sidebar-add-room:hover { background: var(--accent-dark); }
+  #sidebar-scroll { flex: 1; overflow-y: auto; padding-bottom: 8px; }
+  #sidebar-scroll::-webkit-scrollbar { width: 4px; }
+  #sidebar-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .sidebar-section { padding-top: 8px; }
+  .sidebar-section-title {
+    font-size: 11px; color: var(--text-muted); padding: 4px 14px 2px;
+    font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .sidebar-item {
+    display: flex; align-items: center; gap: 10px; padding: 9px 14px;
+    cursor: pointer; transition: background .12s; position: relative;
+  }
+  .sidebar-item:hover { background: rgba(59,130,246,0.06); }
+  .sidebar-item.active { background: rgba(59,130,246,0.14); }
+  .sidebar-item .si-icon { font-size: 18px; flex-shrink: 0; width: 24px; text-align: center; }
+  .sidebar-item .si-info { flex: 1; min-width: 0; }
+  .sidebar-item .si-name {
+    font-size: 13px; font-weight: 500; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+  }
+  .sidebar-item.active .si-name { font-weight: 600; color: var(--accent); }
+  .sidebar-item .si-meta { font-size: 10px; color: var(--text-muted); margin-top: 1px; }
+  .sidebar-item .si-badge {
+    background: var(--danger); color: #fff; font-size: 10px; min-width: 18px;
+    height: 18px; border-radius: 9px; padding: 0 5px; display: flex;
+    align-items: center; justify-content: center; flex-shrink: 0; font-weight: 600;
+  }
+  .sidebar-item .si-close {
+    font-size: 14px; color: var(--text-muted); width: 20px; height: 20px;
+    line-height: 18px; text-align: center; border-radius: 50%; display: none;
+    flex-shrink: 0; cursor: pointer;
+  }
+  .sidebar-item:hover .si-close { display: block; }
+  .sidebar-item .si-close:hover { background: rgba(0,0,0,0.1); color: var(--danger); }
+  .sidebar-empty { font-size: 11px; color: var(--text-muted); padding: 4px 14px; }
+  #main-content { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+
+  #messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+  .msg { display: flex; flex-direction: column; max-width: 80%; }
+  .msg.me { align-self: flex-end; align-items: flex-end; }
+  .msg.other { align-self: flex-start; align-items: flex-start; }
+  .msg .meta { font-size: 11px; color: var(--text-muted); margin: 0 4px 4px; }
+  .bubble-wrap { position: relative; }
+  .bubble {
+    padding: 9px 13px; border-radius: 16px; font-size: 14px; line-height: 1.5;
+    word-break: break-word; white-space: pre-wrap;
+  }
+  .msg.me .bubble { background: var(--bubble-me); color: var(--bubble-me-text); border-bottom-right-radius: 4px; }
+  .msg.other .bubble { background: var(--bubble-other); color: var(--bubble-other-text); border-bottom-left-radius: 4px; }
+
+  /* 引用块 */
+  .quote-block {
+    border-left: 3px solid rgba(255,255,255,0.5); padding: 4px 8px; margin-bottom: 6px;
+    font-size: 12px; opacity: 0.9; border-radius: 0 6px 6px 0; background: rgba(0,0,0,0.08);
+  }
+  .msg.other .quote-block { border-left-color: var(--accent); background: rgba(59,130,246,0.08); }
+  .quote-block .q-sender { font-weight: 600; margin-bottom: 2px; }
+  .quote-block .q-content { overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+
+  /* 图片消息 */
+  .bubble img.msg-img { max-width: 220px; max-height: 220px; border-radius: 8px; cursor: zoom-in; display: block; }
+  .bubble .file-card {
+    display: flex; align-items: center; gap: 10px; padding: 4px 0; cursor: pointer;
+  }
+  .bubble .file-icon { font-size: 28px; }
+  .bubble .file-info { font-size: 13px; }
+  .bubble .file-info .fn { font-weight: 600; }
+  .bubble .file-info .fs { font-size: 11px; opacity: 0.7; }
+
+  /* 已撤回 */
+  .revoked-text { font-size: 12px; color: var(--text-muted); font-style: italic; padding: 4px 8px; }
+
+  /* 悬浮操作 */
+  .msg-actions {
+    display: none; position: absolute; top: -8px; background: var(--panel);
+    border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); overflow: hidden;
+  }
+  .msg.me .msg-actions { right: 0; }
+  .msg.other .msg-actions { left: 0; }
+  .msg-actions button { border: none; background: var(--panel); padding: 4px 10px; font-size: 11px; cursor: pointer; color: var(--text-muted); }
+  .msg-actions button:hover { background: rgba(59,130,246,0.08); color: var(--accent); }
+  .msg-actions button.danger:hover { background: rgba(239,68,68,0.1); color: var(--danger); }
+  .msg:hover .msg-actions { display: flex; }
+
+  .system-msg {
+    align-self: center; font-size: 12px; color: var(--text-muted);
+    background: rgba(0,0,0,0.04); padding: 3px 12px; border-radius: 12px;
+    margin: 4px 0; max-width: 80%; text-align: center; word-break: break-word;
+  }
+  .mute-banner {
+    background: rgba(245,158,11,0.1); color: #92400e; padding: 6px 16px;
+    font-size: 12px; text-align: center; display: none; flex-shrink: 0;
+  }
+  .mute-banner.show { display: block; }
+
+  #quote-preview {
+    display: none; align-items: center; gap: 8px; padding: 8px 12px;
+    background: rgba(59,130,246,0.06); border-top: 1px solid var(--border);
+    border-left: 3px solid var(--accent); font-size: 12px; color: var(--text-muted); flex-shrink: 0;
+  }
+  #quote-preview.show { display: flex; }
+  #quote-preview .qp-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #quote-preview .qp-text b { color: var(--text); }
+  #quote-preview .qp-cancel { cursor: pointer; color: var(--danger); font-size: 14px; padding: 0 4px; }
+
+  /* 上传进度 */
+  #upload-progress {
+    display: none; padding: 6px 12px; background: rgba(59,130,246,0.06);
+    font-size: 12px; color: var(--accent); border-top: 1px solid var(--border); flex-shrink: 0;
+  }
+  #upload-progress.show { display: flex; align-items: center; gap: 8px; }
+  #upload-progress .bar { flex: 1; height: 4px; background: rgba(59,130,246,0.2); border-radius: 2px; overflow: hidden; }
+  #upload-progress .bar-fill { height: 100%; background: var(--accent); width: 0; transition: width .2s; }
+
+  #input-bar {
+    display: flex; gap: 8px; padding: 10px 12px; align-items: flex-end;
+    background: var(--panel); border-top: 1px solid var(--border); flex-shrink: 0;
+  }
+  .upload-btn {
+    width: 40px; height: 40px; border-radius: 50%; border: none;
+    background: var(--accent); color: #fff; cursor: pointer;
+    font-size: 20px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    transition: background .15s; font-weight: 600;
+  }
+  .upload-btn:hover { background: var(--accent-dark); }
+  #input {
+    flex: 1; border: 1px solid var(--border); border-radius: 20px; padding: 10px 16px;
+    font-size: 14px; outline: none; background: var(--bg); color: var(--text); transition: border-color .15s;
+  }
+  #input:focus { border-color: var(--accent); }
+  #send {
+    border: none; background: var(--accent); color: #fff; border-radius: 20px;
+    padding: 0 24px; font-size: 15px; cursor: pointer; transition: background .15s;
+    font-weight: 600; min-height: 40px;
+  }
+  #send:hover { background: var(--accent-dark); }
+  #send:disabled { background: var(--border); cursor: not-allowed; }
+  .drag-over { outline: 3px dashed var(--accent); outline-offset: -8px; }
+
+  /* Lightbox */
+  #lightbox {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.9);
+    display: none; align-items: center; justify-content: center; z-index: 200; cursor: zoom-out;
+  }
+  #lightbox.show { display: flex; }
+  #lightbox img { max-width: 90vw; max-height: 90vh; border-radius: 4px; }
+
+  /* 管理员面板 */
+  #admin-panel {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+    display: none; align-items: center; justify-content: center; z-index: 150;
+  }
+  #admin-panel.show { display: flex; }
+  #admin-panel .card {
+    background: var(--panel); border-radius: 14px; padding: 24px;
+    width: 480px; max-width: calc(100vw - 32px); max-height: 80vh; overflow-y: auto;
+  }
+  #admin-panel h2 { font-size: 18px; margin-bottom: 16px; color: var(--admin); }
+  .admin-section { margin-bottom: 20px; }
+  .admin-section h3 { font-size: 14px; margin-bottom: 8px; color: var(--text); }
+  .admin-row { display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+  .admin-row input, .admin-row select {
+    border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px;
+    font-size: 13px; outline: none; flex: 1; min-width: 100px;
+  }
+  .admin-row input:focus { border-color: var(--accent); }
+  .admin-row button {
+    border: none; border-radius: 8px; padding: 8px 16px; font-size: 13px;
+    cursor: pointer; background: var(--accent); color: #fff;
+  }
+  .admin-row button:hover { background: var(--accent-dark); }
+  .admin-row button.danger { background: var(--danger); }
+  .admin-row button.mute { background: var(--warn); }
+  .admin-toggle { display: flex; align-items: center; gap: 10px; }
+  .admin-toggle .switch { width: 44px; height: 24px; background: var(--border); border-radius: 12px; position: relative; cursor: pointer; transition: background .2s; }
+  .admin-toggle .switch.on { background: var(--ok); }
+  .admin-toggle .switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; background: #fff; border-radius: 50%; transition: transform .2s; }
+  .admin-toggle .switch.on::after { transform: translateX(20px); }
+  #private-pairs-list { list-style: none; max-height: 200px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; }
+  #private-pairs-list li { padding: 8px 12px; font-size: 13px; cursor: pointer; border-bottom: 1px solid var(--border); }
+  #private-pairs-list li:hover { background: rgba(59,130,246,0.06); }
+  #private-pairs-list li:last-child { border-bottom: none; }
+  /* 关闭按钮:sticky 固定在面板顶部,不随内容滚动上移 */
+  #admin-close, .modal .modal-close {
+    position: sticky; top: 12px; float: right; z-index: 3;
+    width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
+    cursor: pointer; font-size: 20px; color: var(--text-muted); line-height: 1;
+    flex-shrink: 0;
+  }
+  /* 清理后台按钮和结果样式 */
+  .admin-section button.warn {
+    border: none; border-radius: 8px; padding: 6px 14px; font-size: 12px;
+    cursor: pointer; background: var(--warn); color: #fff; font-weight: 600;
+  }
+  .admin-section button.warn:hover { filter: brightness(1.1); }
+  .admin-section button.danger {
+    border: none; border-radius: 8px; padding: 6px 14px; font-size: 12px;
+    cursor: pointer; background: var(--danger); color: #fff; font-weight: 600;
+  }
+  .admin-section button.danger:hover { filter: brightness(1.1); }
+  #clean-result.success { background: rgba(16,185,129,0.1); color: var(--ok); }
+  #clean-result.error { background: rgba(239,68,68,0.1); color: var(--danger); }
+  #clean-result.info { background: rgba(59,130,246,0.1); color: var(--accent); }
+  /* 图片/文件失效样式 */
+  .msg-img.msg-img-broken {
+    max-width: 200px; max-height: 120px; object-fit: contain;
+    border-radius: 8px; opacity: 0.85; cursor: default;
+  }
+  .file-card.file-card-broken { opacity: 0.6; cursor: default; }
+  .file-card.file-card-broken:hover { background: var(--bg); }
+  /* 定时清理配置区块 */
+  .clean-config-box {
+    background: var(--bg); padding: 10px 12px; border-radius: 8px;
+    font-size: 12px; color: var(--text-muted); line-height: 1.7;
+    border-left: 3px solid var(--accent); margin-bottom: 10px;
+  }
+  .clean-config-box b { color: var(--text); }
+  .clean-config-box .next-run { color: var(--ok); font-weight: 600; }
+
+  /* 管理后台:房间/用户管理区块 */
+  .admin-search-box {
+    width: 100%; padding: 7px 12px; border: 1px solid var(--border);
+    border-radius: 8px; font-size: 13px; outline: none; background: var(--bg);
+    color: var(--text); margin-bottom: 8px;
+  }
+  .admin-search-box:focus { border-color: var(--accent); }
+  .admin-list {
+    list-style: none; max-height: 240px; overflow-y: auto;
+    border: 1px solid var(--border); border-radius: 8px;
+  }
+  .admin-list::-webkit-scrollbar { width: 4px; }
+  .admin-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .admin-list li {
+    padding: 8px 12px; font-size: 13px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  }
+  .admin-list li:last-child { border-bottom: none; }
+  .admin-list li:hover { background: rgba(59,130,246,0.04); }
+  .admin-list .al-name { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 140px; }
+  .admin-list .al-meta { font-size: 11px; color: var(--text-muted); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .admin-list .al-tag {
+    font-size: 10px; padding: 1px 6px; border-radius: 6px; font-weight: 600; white-space: nowrap;
+  }
+  .admin-list .al-tag.online { background: rgba(16,185,129,0.15); color: var(--ok); }
+  .admin-list .al-tag.offline { background: rgba(107,114,128,0.15); color: #6b7280; }
+  .admin-list .al-tag.admin { background: rgba(139,92,246,0.15); color: var(--admin); }
+  .admin-list .al-tag.super { background: var(--admin); color: #fff; }
+  .admin-list .al-tag.guest { background: rgba(245,158,11,0.15); color: var(--warn); }
+  .admin-list .al-tag.private { background: rgba(245,158,11,0.15); color: var(--warn); }
+  .admin-list .al-tag.locked { background: rgba(107,114,128,0.15); color: #6b7280; }
+  .admin-list .al-actions { display: flex; gap: 4px; margin-left: auto; }
+  .admin-list .al-actions button {
+    border: none; border-radius: 6px; padding: 3px 10px; font-size: 11px;
+    cursor: pointer; font-weight: 600; white-space: nowrap;
+  }
+  .admin-list .al-actions button.kick { background: rgba(239,68,68,0.1); color: var(--danger); }
+  .admin-list .al-actions button.kick:hover { background: var(--danger); color: #fff; }
+  .admin-list .al-actions button.del { background: rgba(239,68,68,0.1); color: var(--danger); }
+  .admin-list .al-actions button.del:hover { background: var(--danger); color: #fff; }
+  .admin-list .al-actions button.promote { background: rgba(139,92,246,0.1); color: var(--admin); }
+  .admin-list .al-actions button.promote:hover { background: var(--admin); color: #fff; }
+  .admin-list .al-actions button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .admin-list-empty { padding: 16px; text-align: center; color: var(--text-muted); font-size: 12px; }
+
+  /* ============ 移动端适配 (≤ 640px) ============ */
+  /* 菜单按钮(汉堡图标),仅移动端显示 */
+  #menu-toggle {
+    display: none; width: 36px; height: 36px; border: none; background: transparent;
+    cursor: pointer; border-radius: 8px; align-items: center; justify-content: center;
+    flex-shrink: 0; color: var(--text);
+  }
+  #menu-toggle:hover { background: rgba(59,130,246,0.08); }
+  #menu-toggle .menu-icon {
+    width: 18px; height: 14px; position: relative;
+  }
+  #menu-toggle .menu-icon span {
+    display: block; position: absolute; height: 2px; width: 100%;
+    background: currentColor; border-radius: 1px; transition: transform .25s, opacity .25s;
+  }
+  #menu-toggle .menu-icon span:nth-child(1) { top: 0; }
+  #menu-toggle .menu-icon span:nth-child(2) { top: 6px; }
+  #menu-toggle .menu-icon span:nth-child(3) { top: 12px; }
+  /* 侧边栏打开时,菜单按钮变为 X */
+  #menu-toggle.active .menu-icon span:nth-child(1) { transform: translateY(6px) rotate(45deg); }
+  #menu-toggle.active .menu-icon span:nth-child(2) { opacity: 0; }
+  #menu-toggle.active .menu-icon span:nth-child(3) { transform: translateY(-6px) rotate(-45deg); }
+
+  /* 侧边栏遮罩层(仅移动端) */
+  #sidebar-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4);
+    z-index: 90; opacity: 0; transition: opacity .25s;
+  }
+  #sidebar-overlay.show { display: block; opacity: 1; }
+
+  @media (max-width: 640px) {
+    :root { --mobile-safe-top: env(safe-area-inset-top, 0px); --mobile-safe-bottom: env(safe-area-inset-bottom, 0px); }
+    html, body { height: 100%; min-height: 100%; }
+    body { height: 100vh; height: 100svh; height: 100dvh; height: var(--app-height, 100dvh); min-height: 0; }
+    header { padding-top: calc(8px + var(--mobile-safe-top)); min-height: calc(56px + var(--mobile-safe-top)); }
+    #main-wrap { min-height: 0; }
+    #main-content { min-height: 0; }
+    /* ---- header 紧凑化 ---- */
+    header { padding-left: 10px; padding-right: 10px; }
+    header h1 { font-size: 14px; max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .header-right { gap: 8px; }
+    #menu-toggle { display: flex; }
+    .admin-badge { font-size: 10px; padding: 2px 6px; }
+    .admin-btn, .logout-btn, .room-btn, .room-admin-btn { font-size: 12px; padding: 5px 10px; }
+    .online-count { font-size: 11px; padding: 2px 8px; }
+    .status { display: none; } /* 移动端隐藏状态文字,仅靠连接行为感知 */
+    .user-panel { min-width: 180px; max-width: 240px; }
+
+    /* ---- 侧边栏抽屉化 ---- */
+    #main-wrap { position: relative; }
+    #sidebar {
+      position: fixed; top: 0; left: 0; bottom: 0;
+      width: 78vw; max-width: 300px; z-index: 100;
+      transform: translateX(-100%); transition: transform .25s ease;
+      box-shadow: 2px 0 12px rgba(0,0,0,0.15);
+    }
+    #sidebar.show { transform: translateX(0); }
+
+    /* ---- 消息区紧凑化 ---- */
+    #messages { padding: 10px; gap: 8px; }
+    .msg { max-width: 88%; }
+    .bubble { padding: 8px 12px; font-size: 14px; }
+    .bubble img.msg-img { max-width: 180px; max-height: 180px; }
+    .bubble .file-card { max-width: 220px; }
+    .msg-meta { font-size: 10px; }
+
+    /* ---- 输入栏紧凑化 ---- */
+    #input-bar {
+      padding: 8px 10px calc(8px + var(--mobile-safe-bottom));
+      min-height: calc(52px + var(--mobile-safe-bottom));
+    }
+    .upload-btn { width: 36px; height: 36px; font-size: 18px; }
+    #input { padding: 9px 14px; font-size: 14px; }
+    #send { padding: 0 18px; font-size: 14px; min-height: 36px; }
+
+    /* ---- 消息操作:移动端长按显示(替代 hover) ---- */
+    .msg-actions { display: none; position: static; background: transparent; border: none; box-shadow: none; margin-top: 2px; }
+    .msg-actions.show { display: flex; }
+    .msg.me .msg-actions { justify-content: flex-end; }
+    .msg.other .msg-actions { justify-content: flex-start; }
+    .msg-actions button { padding: 3px 8px; font-size: 11px; background: rgba(59,130,246,0.08); border-radius: 6px; }
+    /* 长按选中时高亮气泡 */
+    .msg.long-pressing .bubble { background: rgba(59,130,246,0.12) !important; }
+
+    /* ---- 引用预览 ---- */
+    #quote-preview { padding: 6px 10px; font-size: 11px; }
+
+    /* ---- 模态框/管理后台全屏化 ---- */
+    .modal .card, #admin-panel .card {
+      width: 100%; max-width: 100%; max-height: 100vh;
+      border-radius: 0; padding: 16px;
+    }
+    .modal, #admin-panel { align-items: stretch; justify-content: stretch; padding: 0; }
+
+    /* ---- 管理后台列表单列 ---- */
+    .admin-list li { flex-wrap: wrap; gap: 6px; }
+    .admin-list .al-name { max-width: 100%; }
+    .admin-list .al-meta { max-width: 100%; flex-basis: 100%; }
+    .admin-list .al-actions { width: 100%; justify-content: flex-end; margin-left: 0; }
+
+    /* ---- 房间卡片紧凑化 ---- */
+    .room-card { padding: 10px; gap: 8px; }
+    .rooms-toolbar { flex-wrap: wrap; }
+    .rooms-toolbar .search-box { width: 100%; flex-basis: 100%; }
+
+    /* ---- Lightbox 图片更紧凑 ---- */
+    #lightbox img { max-width: 95vw; max-height: 80vh; }
+
+    /* ---- 右侧操作面板 ---- */
+    #action-toggle { display: flex; }
+    .header-right > .room-btn,
+    .header-right > .room-admin-btn,
+    .header-right > .admin-btn,
+    .header-right > .admin-badge,
+    .header-right > .logout-btn,
+    .header-right > #change-pwd-btn { display: none !important; }
+    #action-panel { display: flex; }
+  }
+
+  /* 超窄屏 (≤ 380px) 进一步优化 */
+  @media (max-width: 380px) {
+    header h1 { max-width: 30vw; font-size: 13px; }
+    .header-right { gap: 5px; }
+    .admin-btn, .logout-btn, .room-btn, .room-admin-btn { padding: 4px 8px; font-size: 11px; }
+    .online-count { font-size: 10px; padding: 2px 6px; }
+    .msg { max-width: 92%; }
+    #send { padding: 0 14px; }
+  }
+
+  /* 昵称遮罩 */
+  #overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+    display: flex; align-items: center; justify-content: center; z-index: 100;
+  }
+  #overlay .card {
+    background: var(--panel); border-radius: 14px; padding: 28px;
+    width: 320px; max-width: calc(100vw - 32px); text-align: center;
+  }
+  #overlay h2 { font-size: 18px; margin-bottom: 8px; }
+  #overlay p { font-size: 13px; color: var(--text-muted); margin-bottom: 18px; }
+  #overlay input {
+    width: 100%; border: 1px solid var(--border); border-radius: 10px;
+    padding: 11px 14px; font-size: 14px; outline: none; text-align: center; margin-bottom: 10px;
+  }
+  #overlay input:focus { border-color: var(--accent); }
+  #overlay button {
+    width: 100%; border: none; background: var(--accent); color: #fff;
+    border-radius: 10px; padding: 11px; font-size: 14px; cursor: pointer;
+  }
+  #overlay button:hover { background: var(--accent-dark); }
+  #overlay button:disabled { background: var(--border); cursor: not-allowed; }
+  #overlay .err { color: var(--danger); font-size: 12px; margin-top: 10px; min-height: 16px; }
+  #admin-pwd-row { display: block; margin-bottom: 10px; }
+  #overlay .hint { font-size: 11px; color: var(--text-muted); margin-top: 6px; }
+  /* 认证标签页 */
+  .auth-tabs { display: flex; gap: 4px; margin-bottom: 18px; border-bottom: 1px solid var(--border); }
+  .auth-tab {
+    flex: 1; padding: 9px 8px; background: transparent; border: none;
+    border-bottom: 2px solid transparent; font-size: 13px; color: var(--text-muted);
+    cursor: pointer; font-weight: 500; border-radius: 0;
+  }
+  .auth-tab:hover { color: var(--text); }
+  .auth-tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+  .auth-panel input { text-align: left; }
+  .auth-panel label.check { display: flex; align-items: center; gap: 6px; font-size: 12px; margin: 4px 0 12px; cursor: pointer; color: var(--text-muted); justify-content: flex-start; }
+
+  /* 房间列表按钮 */
+  .room-btn {
+    font-size: 13px; color: #fff; background: var(--accent);
+    padding: 6px 14px; border-radius: 10px; cursor: pointer; display: none;
+    border: none; font-weight: 600; transition: background .15s;
+  }
+  .room-btn.show { display: inline-block; }
+  .room-btn:hover { background: var(--accent-dark); }
+  /* 房间管理按钮(房主/管理员) */
+  .room-admin-btn {
+    font-size: 13px; color: #fff; background: var(--warn);
+    padding: 6px 14px; border-radius: 10px; cursor: pointer; display: none;
+    border: none; font-weight: 600; transition: background .15s;
+  }
+  .room-admin-btn.show { display: inline-block; }
+  .room-admin-btn:hover { background: #d97706; }
+
+  /* 房间禁言横幅 */
+  .room-mute-banner {
+    background: rgba(245,158,11,0.1); color: #92400e; padding: 6px 16px;
+    font-size: 12px; text-align: center; display: none; flex-shrink: 0;
+  }
+  .room-mute-banner.show { display: block; }
+
+  /* 通用模态框(房间列表/创建/加入/管理) */
+  .modal {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+    display: none; align-items: center; justify-content: center; z-index: 150;
+  }
+  .modal.show { display: flex; }
+  .modal .card {
+    background: var(--panel); border-radius: 14px; padding: 24px;
+    width: 460px; max-width: calc(100vw - 32px); max-height: 80vh; overflow-y: auto;
+    position: relative;
+  }
+  .modal h2 { font-size: 18px; margin-bottom: 16px; }
+  .modal .modal-close:hover { color: var(--danger); }
+  .modal label.check { display: flex; align-items: center; gap: 6px; font-size: 13px; margin-bottom: 12px; cursor: pointer; }
+  .modal input[type="text"], .modal input[type="password"] {
+    width: 100%; border: 1px solid var(--border); border-radius: 8px;
+    padding: 9px 12px; font-size: 14px; outline: none; margin-bottom: 12px;
+    background: var(--bg); color: var(--text);
+  }
+  .modal input:focus { border-color: var(--accent); }
+  .modal .err { color: var(--danger); font-size: 12px; min-height: 14px; margin-bottom: 8px; }
+  .modal button.primary {
+    border: none; border-radius: 8px; padding: 9px 16px; font-size: 14px;
+    cursor: pointer; background: var(--accent); color: #fff; width: 100%;
+  }
+  .modal button.primary:hover { background: var(--accent-dark); }
+  .modal .cr-idle-row { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-bottom: 12px; color: var(--text-muted); flex-wrap: wrap; }
+  .modal .cr-idle-row input[type="number"] {
+    flex: 1; min-width: 90px; border: 1px solid var(--border); border-radius: 8px;
+    padding: 7px 10px; font-size: 14px; outline: none;
+    background: var(--bg); color: var(--text);
+  }
+
+  /* 房间列表 */
+  .rooms-toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+  .rooms-toolbar .search-box {
+    flex: 1; border: 1px solid var(--border); border-radius: 8px;
+    padding: 7px 12px; font-size: 13px; outline: none; background: var(--bg); color: var(--text);
+  }
+  .rooms-toolbar .search-box:focus { border-color: var(--accent); }
+  .rooms-toolbar button {
+    border: none; border-radius: 8px; padding: 7px 14px; font-size: 13px;
+    cursor: pointer; background: var(--accent); color: #fff; font-weight: 600; flex-shrink: 0;
+  }
+  .rooms-toolbar button:hover { background: var(--accent-dark); }
+  #rooms-list { display: flex; flex-direction: column; gap: 8px; }
+  .rooms-empty { color: var(--text-muted); text-align: center; padding: 16px; font-size: 13px; }
+  .room-card {
+    border: 1px solid var(--border); border-radius: 10px; padding: 12px;
+    display: flex; align-items: center; gap: 10px; transition: border-color .15s;
+  }
+  .room-card:hover { border-color: var(--accent); }
+  .room-card.current { border-color: var(--accent); background: rgba(59,130,246,0.04); }
+  .room-card .r-icon { font-size: 20px; flex-shrink: 0; }
+  .room-card .r-info { flex: 1; min-width: 0; }
+  .room-card .r-name { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; word-break: break-all; }
+  .room-card .r-meta { font-size: 11px; color: var(--text-muted); margin-top: 3px; }
+  .r-tag { font-size: 10px; padding: 1px 6px; border-radius: 6px; font-weight: 600; white-space: nowrap; }
+  .r-tag.private { background: rgba(245,158,11,0.15); color: #92400e; }
+  .r-tag.public { background: rgba(16,185,129,0.15); color: #065f46; }
+  .r-tag.cur { background: rgba(59,130,246,0.15); color: var(--accent); }
+  .r-tag.idle { background: rgba(139,92,246,0.15); color: #6d28d9; }
+  .room-card .r-actions { display: flex; gap: 6px; flex-shrink: 0; }
+  .room-card .r-btn {
+    border: none; border-radius: 8px; padding: 6px 14px; font-size: 12px;
+    cursor: pointer; background: var(--accent); color: #fff; font-weight: 600;
+  }
+  .room-card .r-btn:hover { background: var(--accent-dark); }
+
+  /* 房间管理面板分组 */
+  .rm-section { margin-bottom: 16px; }
+  .rm-section h3 { font-size: 13px; margin-bottom: 6px; color: var(--text); }
+  .rm-section .hint { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+  .rm-row { display: flex; gap: 8px; }
+  .rm-row input { flex: 1; }
+  .rm-row button {
+    border: none; border-radius: 8px; padding: 9px 14px; font-size: 13px;
+    cursor: pointer; background: var(--accent); color: #fff; flex-shrink: 0;
+  }
+  .rm-row button:hover { background: var(--accent-dark); }
+  .rm-row button.danger { background: var(--danger); }
+  .rm-row button.danger:hover { background: #dc2626; }
+  .rm-divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+  #rm-manager-list { list-style: none; margin: 0 0 8px; padding: 0; }
+  #rm-manager-list li {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px;
+    margin-bottom: 6px; font-size: 13px;
+  }
+  #rm-manager-list li .rm-mg-name { font-weight: 600; }
+  #rm-manager-list li button {
+    border: none; border-radius: 6px; padding: 4px 10px; font-size: 12px;
+    cursor: pointer; background: rgba(239,68,68,0.1); color: var(--danger); flex-shrink: 0;
+  }
+  #rm-manager-list li button:hover { background: var(--danger); color: #fff; }
+  .rm-update { width: 100%; border: none; border-radius: 8px; padding: 10px; font-size: 14px; cursor: pointer; background: var(--accent); color: #fff; font-weight: 600; }
+  .rm-update:hover { background: var(--accent-dark); }
+  .rm-delete { width: 100%; border: none; border-radius: 8px; padding: 10px; font-size: 14px; cursor: pointer; background: var(--danger); color: #fff; font-weight: 600; margin-top: 8px; }
+  .rm-delete:hover { background: #dc2626; }
+
+  /* 用户列表中的踢人按钮 */
+  #user-list li .kick-btn {
+    font-size: 11px; color: var(--danger); background: rgba(239,68,68,0.1);
+    padding: 2px 8px; border-radius: 6px; cursor: pointer; border: none;
+    margin-left: auto; font-weight: 600;
+  }
+  #user-list li .kick-btn:hover { background: rgba(239,68,68,0.2); }
+  #user-list li.is-owner-li .name-owner-tag {
+    font-size: 10px; color: var(--warn); font-weight: 600;
+    background: rgba(245,158,11,0.12); padding: 1px 6px; border-radius: 6px; margin-left: 4px;
+  }
+  #user-list li .name-mgr-tag {
+    font-size: 10px; color: #06b6d4; font-weight: 600;
+    background: rgba(6,182,212,0.12); padding: 1px 6px; border-radius: 6px; margin-left: 4px;
+  }
+
+  /* ===== 移动端右侧操作面板 ===== */
+  /* 菜单按钮(三竖点) - 仅移动端显示 */
+  #action-toggle {
+    display: none; width: 36px; height: 36px; border: none; background: transparent;
+    cursor: pointer; border-radius: 8px; align-items: center; justify-content: center;
+    flex-shrink: 0; color: var(--text); padding: 0;
+  }
+  #action-toggle:hover { background: rgba(59,130,246,0.08); }
+  #action-toggle .action-icon { font-size: 20px; line-height: 1; }
+
+  /* 操作面板遮罩层 */
+  #action-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4);
+    z-index: 90; opacity: 0; transition: opacity .25s;
+  }
+  #action-overlay.show { display: block; opacity: 1; }
+
+  /* 操作面板主体 */
+  #action-panel {
+    display: none; position: fixed; top: 0; right: 0; bottom: 0;
+    width: 80vw; max-width: 320px; z-index: 95;
+    background: var(--panel); box-shadow: -2px 0 12px rgba(0,0,0,0.15);
+    transform: translateX(100%); transition: transform .25s ease;
+    flex-direction: column; overflow: hidden;
+  }
+  #action-panel.show { transform: translateX(0); }
+
+  #action-panel-header {
+    padding: 16px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    flex-shrink: 0; min-height: 56px;
+  }
+  #action-panel-title {
+    font-size: 16px; font-weight: 600; color: var(--text);
+  }
+  #action-panel-close {
+    width: 32px; height: 32px; border: none; background: transparent;
+    cursor: pointer; border-radius: 6px; font-size: 24px;
+    color: var(--text-muted); display: flex; align-items: center; justify-content: center;
+  }
+  #action-panel-close:hover { background: rgba(59,130,246,0.08); color: var(--danger); }
+
+  #action-panel-body {
+    flex: 1; overflow-y: auto; padding: 16px;
+  }
+  #action-panel-body::-webkit-scrollbar { width: 4px; }
+  #action-panel-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* 用户信息区 */
+  .action-user-info {
+    padding: 12px; background: rgba(59,130,246,0.06); border-radius: 10px;
+    margin-bottom: 16px; display: flex; align-items: center; gap: 10px;
+  }
+  .action-user-name {
+    font-size: 15px; font-weight: 600; color: var(--text); flex: 1;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .action-admin-badge {
+    font-size: 11px; color: #fff; background: var(--admin);
+    padding: 2px 8px; border-radius: 8px; font-weight: 600;
+  }
+
+  /* 操作按钮组 */
+  .action-group {
+    display: flex; flex-direction: column; gap: 4px;
+    padding-bottom: 12px; margin-bottom: 12px; border-bottom: 1px solid var(--border);
+  }
+  .action-group:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+
+  .action-btn {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 14px; border: none; background: transparent;
+    border-radius: 8px; cursor: pointer; font-size: 14px; color: var(--text);
+    transition: background .12s; text-align: left; width: 100%;
+  }
+  .action-btn:hover { background: rgba(59,130,246,0.08); }
+  .action-btn .action-btn-icon { font-size: 18px; width: 24px; text-align: center; flex-shrink: 0; }
+  .action-btn .action-btn-label { flex: 1; font-weight: 500; }
+
+  .action-btn.danger { color: var(--danger); }
+  .action-btn.danger:hover { background: rgba(239,68,68,0.08); }
+
+  /* 在线用户列表（面板内） */
+  .action-online-section { margin-top: 0; }
+  .action-online-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 0; margin-bottom: 8px;
+  }
+  .action-online-title {
+    font-size: 13px; font-weight: 600; color: var(--text);
+  }
+  .action-online-count {
+    font-size: 12px; color: var(--accent); font-weight: 600;
+    background: rgba(59,130,246,0.1); padding: 2px 8px; border-radius: 10px;
+  }
+  .action-online-search {
+    width: 100%; padding: 8px 12px; border: 1px solid var(--border);
+    border-radius: 8px; font-size: 13px; outline: none; background: var(--bg);
+    color: var(--text); margin-bottom: 8px;
+  }
+  .action-online-search:focus { border-color: var(--accent); }
+  .action-user-list {
+    list-style: none; max-height: 300px; overflow-y: auto;
+    border: 1px solid var(--border); border-radius: 8px; padding: 4px 0;
+  }
+  .action-user-list::-webkit-scrollbar { width: 4px; }
+  .action-user-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .action-user-list li {
+    padding: 8px 12px; font-size: 13px; display: flex; align-items: center; gap: 8px;
+    cursor: pointer; transition: background .12s; word-break: break-all;
+  }
+  .action-user-list li:hover { background: rgba(59,130,246,0.06); }
+  .action-user-list li .u-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex-shrink: 0; }
+  .action-user-list li .me-tag {
+    font-size: 10px; color: var(--accent); font-weight: 600;
+    background: rgba(59,130,246,0.12); padding: 1px 6px; border-radius: 6px; margin-left: auto;
+  }
+  .action-user-list li .pm-hint { font-size: 11px; color: var(--text-muted); margin-left: 6px; }
+  .action-user-list li .kick-btn {
+    font-size: 11px; color: var(--danger); background: rgba(239,68,68,0.1);
+    padding: 2px 8px; border-radius: 6px; cursor: pointer; border: none;
+    margin-left: auto; font-weight: 600;
+  }
+  .action-user-list li .kick-btn:hover { background: rgba(239,68,68,0.2); }
+  .action-user-list li.is-owner-li .name-owner-tag {
+    font-size: 10px; color: var(--warn); font-weight: 600;
+    background: rgba(245,158,11,0.12); padding: 1px 6px; border-radius: 6px; margin-left: 4px;
+  }
+  .action-user-list li .name-mgr-tag {
+    font-size: 10px; color: #06b6d4; font-weight: 600;
+    background: rgba(6,182,212,0.12); padding: 1px 6px; border-radius: 6px; margin-left: 4px;
+  }
+  .action-user-list-empty {
+    padding: 16px; text-align: center; color: var(--text-muted); font-size: 12px;
+  }
+
+  /* ===== Modal 约束 - 操作面板打开时 ===== */
+  body.drawer-open .modal {
+    align-items: stretch; justify-content: flex-end; padding: 0;
+  }
+  body.drawer-open .modal .card {
+    width: 80vw; max-width: 320px;
+    border-radius: 0; max-height: 100vh;
+  }
+  body.drawer-open #admin-panel {
+    align-items: stretch; justify-content: flex-end; padding: 0;
+  }
+  body.drawer-open #admin-panel .card {
+    width: 80vw; max-width: 320px;
+    border-radius: 0; max-height: 100vh;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <button id="menu-toggle" title="房间/私聊列表" aria-label="切换侧边栏">
+    <div class="menu-icon"><span></span><span></span><span></span></div>
+  </button>
+  <h1 id="room-title">轻量化聊天室</h1>
+  <div class="header-right">
+    <button class="room-btn" id="rooms-btn-open" title="查看/切换房间">房间列表</button>
+    <button class="room-admin-btn" id="room-admin-btn-open" title="房间管理">房管</button>
+    <span class="admin-badge" id="admin-badge">管理员</span>
+    <button class="admin-btn" id="admin-btn-open">管理</button>
+    <button class="logout-btn" id="change-pwd-btn" title="修改密码" style="display:none">改密</button>
+    <button class="logout-btn" id="logout-btn" title="退出当前账号/切换用户" style="display:none">登出</button>
+    <div class="online-wrap">
+      <span id="online-count" class="online-count" title="点击查看在线用户">在线 0</span>
+      <div id="user-panel" class="user-panel hidden">
+        <div class="user-panel-header">在线用户 · <span id="user-panel-count">0</span></div>
+        <input id="user-search" class="user-panel-search" type="text" placeholder="搜索用户…" autocomplete="off">
+        <ul id="user-list"></ul>
+      </div>
+    </div>
+    <button id="action-toggle" title="更多操作" aria-label="打开操作面板">
+      <span class="action-icon">⋮</span>
+    </button>
+    <div class="status">
+      <span class="dot connecting" id="status-dot"></span>
+      <span id="status-text">连接中…</span>
+    </div>
+  </div>
+</header>
+
+<div class="mute-banner" id="mute-banner">聊天室已被全员禁言，仅管理员可发言</div>
+<div class="room-mute-banner" id="room-mute-banner">当前房间已被全员禁言</div>
+
+<div id="main-wrap">
+  <div id="sidebar-overlay"></div>
+  <div id="sidebar">
+    <div id="sidebar-header">
+      <button id="sidebar-add-room">＋ 房间</button>
+    </div>
+    <div id="sidebar-scroll">
+      <div class="sidebar-section">
+        <div class="sidebar-section-title">房间</div>
+        <div id="sidebar-rooms"></div>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-section-title">私聊</div>
+        <div id="sidebar-privates"></div>
+      </div>
+    </div>
+  </div>
+  <div id="main-content">
+    <div id="messages"></div>
+    <div id="quote-preview">
+      <div class="qp-text" id="qp-text"></div>
+      <span class="qp-cancel" id="qp-cancel" title="取消引用">×</span>
+    </div>
+    <div id="upload-progress">
+      <span id="up-status">上传中</span>
+      <div class="bar"><div class="bar-fill" id="up-bar"></div></div>
+      <span id="up-pct">0%</span>
+    </div>
+    <div id="input-bar">
+      <input type="file" id="file-input" multiple style="display:none">
+      <button class="upload-btn" id="upload-btn" title="发送文件/图片">+</button>
+      <input id="input" type="text" placeholder="输入消息，回车发送…" maxlength="4000" autocomplete="off" disabled>
+      <button id="send" disabled>发送</button>
+    </div>
+  </div>
+</div>
+
+<div id="lightbox"><img id="lightbox-img" src=""></div>
+
+<!-- 移动端右侧操作面板 -->
+<div id="action-overlay"></div>
+<div id="action-panel">
+  <div id="action-panel-header">
+    <span id="action-panel-title">操作</span>
+    <button id="action-panel-close" title="关闭">×</button>
+  </div>
+  <div id="action-panel-body">
+    <!-- 用户信息区 -->
+    <div class="action-user-info" id="action-user-info" style="display:none">
+      <span class="action-user-name" id="action-user-name"></span>
+      <span class="action-admin-badge" id="action-admin-badge" style="display:none">管理员</span>
+    </div>
+
+    <!-- 操作按钮组 -->
+    <div class="action-group" id="action-group-main">
+      <button class="action-btn" id="action-rooms-btn">
+        <span class="action-btn-icon">🏠</span>
+        <span class="action-btn-label">房间列表</span>
+      </button>
+      <button class="action-btn" id="action-room-admin-btn" style="display:none">
+        <span class="action-btn-icon">⚙</span>
+        <span class="action-btn-label">房间管理</span>
+      </button>
+    </div>
+
+    <div class="action-group" id="action-group-admin" style="display:none">
+      <button class="action-btn" id="action-admin-btn">
+        <span class="action-btn-icon">🛡</span>
+        <span class="action-btn-label">管理后台</span>
+      </button>
+    </div>
+
+    <div class="action-group" id="action-group-account">
+      <button class="action-btn" id="action-change-pwd-btn" style="display:none">
+        <span class="action-btn-icon">🔑</span>
+        <span class="action-btn-label">修改密码</span>
+      </button>
+      <button class="action-btn danger" id="action-logout-btn" style="display:none">
+        <span class="action-btn-icon">🚪</span>
+        <span class="action-btn-label" id="action-logout-label">登出</span>
+      </button>
+    </div>
+
+    <!-- 在线用户区 -->
+    <div class="action-group action-online-section">
+      <div class="action-online-header">
+        <span class="action-online-title">在线用户</span>
+        <span class="action-online-count" id="action-online-count">0</span>
+      </div>
+      <input id="action-user-search" class="action-online-search" type="text" placeholder="搜索用户…" autocomplete="off">
+      <ul class="action-user-list" id="action-user-list"></ul>
+    </div>
+  </div>
+</div>
+
+<div id="admin-panel">
+  <div class="card" style="position:relative">
+    <span id="admin-close">×</span>
+    <h2>管理员控制台</h2>
+    <div class="admin-section">
+      <h3>全员禁言</h3>
+      <div class="admin-toggle">
+        <div class="switch" id="mute-switch"></div>
+        <span id="mute-label">关闭</span>
+      </div>
+    </div>
+    <div class="admin-section">
+      <h3>强制下线</h3>
+      <div class="admin-row">
+        <select id="kick-target"><option value="">选择用户</option></select>
+        <input id="kick-duration" type="number" min="0" max="10080" step="1" value="0" placeholder="0" title="分钟(0=永久禁止进入,上限7天)" style="flex:1;min-width:80px">
+        <button class="danger" id="kick-btn">踢下线</button>
+      </div>
+      <div style="font-size:12px;color:var(--text-muted)">时长单位: 分钟（0=永久禁止进入，上限 7 天）</div>
+    </div>
+    <div class="admin-section">
+      <h3>私聊记录查看</h3>
+      <ul id="private-pairs-list"></ul>
+      <div id="admin-private-view" style="display:none;margin-top:8px">
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px" id="apv-title"></div>
+        <div id="apv-messages" style="max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:8px;font-size:13px"></div>
+      </div>
+    </div>
+    <div class="admin-section">
+      <h3>房间管理</h3>
+      <input id="admin-rooms-search" class="admin-search-box" type="text" placeholder="搜索房间名称或房主…" autocomplete="off">
+      <ul id="admin-rooms-list" class="admin-list"></ul>
+    </div>
+    <div class="admin-section">
+      <h3>用户管理</h3>
+      <input id="admin-users-search" class="admin-search-box" type="text" placeholder="搜索用户名或昵称…" autocomplete="off">
+      <ul id="admin-users-list" class="admin-list"></ul>
+    </div>
+    <div class="admin-section">
+      <h3>上传记录</h3>
+      <input id="admin-uploads-search" class="admin-search-box" type="text" placeholder="搜索上传者/IP/文件名…" autocomplete="off">
+      <ul id="admin-uploads-list" class="admin-list"></ul>
+    </div>
+    <div class="admin-section">
+      <h3>清理后台</h3>
+      <div id="clean-config" class="clean-config-box">加载中...</div>
+      <div id="clean-stats" style="font-size:12px;color:var(--text-muted);margin-bottom:12px;background:var(--bg);padding:10px;border-radius:8px;line-height:1.6">
+        <div>加载中...</div>
+      </div>
+      <div class="admin-row" style="flex-direction:column;gap:10px">
+        <div style="display:flex;gap:8px;align-items:center">
+          <label style="font-size:13px;white-space:nowrap">清理 N 天前的消息:</label>
+          <input id="clean-days" type="number" value="30" min="1" max="365" style="width:60px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+          <span style="font-size:11px;color:var(--text-muted)">天</span>
+          <button class="warn" id="clean-old-btn" style="margin-left:auto">清理旧消息</button>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span style="font-size:13px">清理已撤回消息 + 孤儿文件:</span>
+          <button class="warn" id="clean-revoked-btn" style="margin-left:auto">清理撤回+孤儿</button>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span style="font-size:13px">清理无房主的孤儿房间:</span>
+          <button class="warn" id="clean-rooms-btn" style="margin-left:auto">清理孤儿房间</button>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;padding-top:8px;border-top:1px solid var(--border)">
+          <span style="font-size:13px;color:var(--accent);font-weight:600">⏰ 立即执行一次定时清理:</span>
+          <button class="primary" id="clean-trigger-btn" style="margin-left:auto;padding:6px 14px;font-size:12px;border:none;border-radius:8px;background:var(--accent);color:#fff;font-weight:600;cursor:pointer">立即触发</button>
+        </div>
+        <div id="clean-reset-row" style="display:flex;gap:8px;align-items:center;padding-top:8px;border-top:1px solid var(--border)">
+          <span style="font-size:13px;color:var(--danger);font-weight:600">⚠ 完全重置数据库:</span>
+          <button class="danger" id="clean-reset-btn" style="margin-left:auto">完全重置(危险)</button>
+        </div>
+      </div>
+      <div id="clean-result" style="margin-top:12px;font-size:12px;display:none;padding:10px;border-radius:8px"></div>
+    </div>
+    <!-- 管理员列表(仅主管理员可见) -->
+    <div class="admin-section" id="admin-manage-section" style="display:none">
+      <h3>管理员列表</h3>
+      <div class="hint" style="margin-bottom:8px">主管理员可将已注册用户升级为子管理员。子管理员拥有常规管理权限,但不能管理管理员列表、不能踢其他管理员、不能重置数据库。</div>
+      <ul id="admin-list" style="list-style:none;max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;margin-bottom:12px"></ul>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input id="new-admin-name" type="text" maxlength="64" placeholder="用户名(已注册用户的登录名)" autocomplete="off" style="flex:1;min-width:200px;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+        <button class="primary" id="add-admin-btn" style="width:auto;padding:7px 16px;font-size:13px">升级为管理员</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 房间列表模态框 -->
+<div class="modal" id="rooms-panel">
+  <div class="card">
+    <span class="modal-close" id="rooms-close">×</span>
+    <h2>房间列表</h2>
+    <div class="rooms-toolbar">
+      <input id="rooms-search" class="search-box" type="text" placeholder="搜索房间名称或房主…" autocomplete="off">
+      <button id="create-room-btn">＋ 创建房间</button>
+    </div>
+    <div id="rooms-list"></div>
+  </div>
+</div>
+
+<!-- 创建房间模态框 -->
+<div class="modal" id="create-room-modal">
+  <div class="card">
+    <span class="modal-close" id="cr-close">×</span>
+    <h2>创建房间</h2>
+    <input id="cr-name" type="text" maxlength="30" placeholder="房间名称（最多 30 字符）" autocomplete="off">
+    <input id="cr-password" type="password" maxlength="50" placeholder="房间密码（可选，留空 = 公开房间）" autocomplete="off">
+    <label class="check"><input type="checkbox" id="cr-private"> 设为私密房间（保留全部历史，公开房间仅保留 500 条）</label>
+    <div class="cr-idle-row" id="cr-idle-wrap">
+      <span>无人使用超过设定时长后自动清理：</span>
+      <input id="cr-idle" type="number" min="0" max="10080" step="1" value="0" placeholder="0" autocomplete="off">
+      <span>分钟（0=不自动清理，上限 7 天）</span>
+    </div>
+    <div class="err" id="cr-err"></div>
+    <button class="primary" id="cr-submit">创建并加入</button>
+  </div>
+</div>
+
+<!-- 加入房间(输密码)模态框 -->
+<div class="modal" id="join-room-modal">
+  <div class="card">
+    <span class="modal-close" id="jr-close">×</span>
+    <h2 id="jr-title">加入房间</h2>
+    <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px">该房间需要密码</p>
+    <input id="jr-password" type="password" maxlength="50" placeholder="房间密码" autocomplete="off">
+    <div class="err" id="jr-err"></div>
+    <button class="primary" id="jr-submit">加入</button>
+  </div>
+</div>
+
+<!-- 修改密码模态框 -->
+<div class="modal" id="change-pwd-modal">
+  <div class="card">
+    <span class="modal-close" id="cp-close">×</span>
+    <h2>修改密码</h2>
+    <input id="cp-old" type="password" maxlength="50" placeholder="当前密码" autocomplete="off">
+    <input id="cp-new" type="password" maxlength="50" placeholder="新密码（6-50 位）" autocomplete="off">
+    <input id="cp-new2" type="password" maxlength="50" placeholder="确认新密码" autocomplete="off">
+    <div class="hint">修改成功后需重新登录</div>
+    <div class="err" id="cp-err"></div>
+    <button class="primary" id="cp-submit">确认修改</button>
+  </div>
+</div>
+
+<!-- 房间管理模态框 -->
+<div class="modal" id="room-admin-panel">
+  <div class="card">
+    <span class="modal-close" id="ra-close">×</span>
+    <h2>房间管理</h2>
+    <div class="rm-section" id="rm-sec-name">
+      <h3>房间名称</h3>
+      <input id="rm-name" type="text" maxlength="30" placeholder="房间名称" autocomplete="off">
+    </div>
+    <div class="rm-section" id="rm-sec-password">
+      <h3>房间密码</h3>
+      <input id="rm-password" type="password" maxlength="50" placeholder="留空 = 移除密码（改为公开）" autocomplete="off">
+      <div class="hint">如需修改密码请输入新密码，留空表示移除密码</div>
+    </div>
+    <div class="rm-section" id="rm-sec-type">
+      <h3>房间类型</h3>
+      <label class="check"><input type="checkbox" id="rm-private"> 私密房间（保留全部历史）</label>
+    </div>
+    <div class="rm-section">
+      <h3>房间全员禁言</h3>
+      <div class="admin-toggle">
+        <div class="switch" id="rm-mute-switch"></div>
+        <span id="rm-mute-label">关闭</span>
+      </div>
+    </div>
+    <div class="rm-section" id="rm-sec-managers">
+      <h3>房间管理</h3>
+      <div class="hint">管理可禁言/踢普通成员，无法对房主和管理员使用</div>
+      <ul id="rm-manager-list"></ul>
+      <div class="rm-row" id="rm-manager-add-row">
+        <input id="rm-manager-name" type="text" maxlength="20" placeholder="用户昵称" autocomplete="off">
+        <button id="rm-manager-add">添加</button>
+      </div>
+    </div>
+    <button class="rm-update" id="rm-update-btn">保存房间信息</button>
+    <hr class="rm-divider" id="rm-divider-1">
+    <div class="rm-section" id="rm-sec-transfer">
+      <h3>转让房主</h3>
+      <div class="rm-row">
+        <input id="rm-transfer" type="text" maxlength="20" placeholder="新房主昵称" autocomplete="off">
+        <button id="rm-transfer-btn">转让</button>
+      </div>
+      <div class="hint">转让后你将不再拥有房主权限</div>
+    </div>
+    <hr class="rm-divider" id="rm-divider-2">
+    <div class="rm-section" id="rm-sec-danger">
+      <h3>危险操作</h3>
+      <button class="rm-delete" id="rm-delete-btn">删除房间</button>
+    </div>
+  </div>
+</div>
+
+<div id="overlay">
+  <div class="card">
+    <h2>进入聊天室</h2>
+    <div class="auth-tabs">
+      <button class="auth-tab active" data-tab="guest">快速进入</button>
+      <button class="auth-tab" data-tab="login">账号登录</button>
+      <button class="auth-tab" data-tab="register">注册</button>
+    </div>
+
+    <!-- 快速进入(临时用户) -->
+    <div class="auth-panel" id="panel-guest">
+      <input id="name-input" type="text" maxlength="20" placeholder="昵称" autocomplete="off">
+      <div id="admin-pwd-row">
+        <input id="admin-pwd" type="password" maxlength="50" placeholder="主管理员密码（普通用户留空）" autocomplete="off">
+        <div class="hint">主管理员请填密码,普通用户留空</div>
+      </div>
+      <button id="enter-btn" disabled>进入</button>
+      <div class="err" id="name-err"></div>
+    </div>
+
+    <!-- 账号登录 -->
+    <div class="auth-panel" id="panel-login" style="display:none">
+      <input id="login-username" type="text" maxlength="64" placeholder="用户名" autocomplete="off">
+      <input id="login-password" type="password" maxlength="50" placeholder="密码" autocomplete="off">
+      <label class="check"><input type="checkbox" id="login-remember" checked> 记住我(30天免登录)</label>
+      <button id="login-btn" disabled>登录</button>
+      <div class="hint">管理员账号同样可通过本入口登录</div>
+      <div class="err" id="login-err"></div>
+    </div>
+
+    <!-- 注册 -->
+    <div class="auth-panel" id="panel-register" style="display:none">
+      <input id="reg-username" type="text" maxlength="64" placeholder="用户名(登录用,不可改)" autocomplete="off">
+      <input id="reg-nickname" type="text" maxlength="20" placeholder="显示昵称" autocomplete="off">
+      <input id="reg-password" type="password" maxlength="50" placeholder="密码(6-50位)" autocomplete="off">
+      <input id="reg-password2" type="password" maxlength="50" placeholder="确认密码" autocomplete="off">
+      <label class="check"><input type="checkbox" id="reg-remember" checked> 记住我(30天免登录)</label>
+      <button id="register-btn" disabled>注册并进入</button>
+      <div class="err" id="reg-err"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  function syncViewportHeight() {
+    var viewport = window.visualViewport;
+    var height = viewport ? viewport.height : window.innerHeight;
+    if (height > 0) document.documentElement.style.setProperty('--app-height', height + 'px');
+  }
+  syncViewportHeight();
+  window.addEventListener('resize', syncViewportHeight);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', syncViewportHeight);
+    window.visualViewport.addEventListener('scroll', syncViewportHeight);
+  }
+
+  // DOM
+  var messagesEl = document.getElementById('messages');
+  var inputEl = document.getElementById('input');
+  var sendBtn = document.getElementById('send');
+  var overlay = document.getElementById('overlay');
+  var nameInput = document.getElementById('name-input');
+  var adminPwdRow = document.getElementById('admin-pwd-row');
+  var adminPwdInput = document.getElementById('admin-pwd');
+  var enterBtn = document.getElementById('enter-btn');
+  var nameErr = document.getElementById('name-err');
+  // 账号登录/注册
+  var loginUsername = document.getElementById('login-username');
+  var loginPassword = document.getElementById('login-password');
+  var loginRemember = document.getElementById('login-remember');
+  var loginBtn = document.getElementById('login-btn');
+  var loginErr = document.getElementById('login-err');
+  var regUsername = document.getElementById('reg-username');
+  var regNickname = document.getElementById('reg-nickname');
+  var regPassword = document.getElementById('reg-password');
+  var regPassword2 = document.getElementById('reg-password2');
+  var regRemember = document.getElementById('reg-remember');
+  var registerBtn = document.getElementById('register-btn');
+  var regErr = document.getElementById('reg-err');
+  var statusDot = document.getElementById('status-dot');
+  var statusText = document.getElementById('status-text');
+  var onlineCountEl = document.getElementById('online-count');
+  var userPanel = document.getElementById('user-panel');
+  var userListEl = document.getElementById('user-list');
+  var userPanelCount = document.getElementById('user-panel-count');
+  var userSearch = document.getElementById('user-search');
+  var sidebarRoomsEl = document.getElementById('sidebar-rooms');
+  var sidebarPrivatesEl = document.getElementById('sidebar-privates');
+  var sidebarAddRoomBtn = document.getElementById('sidebar-add-room');
+  var sidebarEl = document.getElementById('sidebar');
+  var sidebarOverlay = document.getElementById('sidebar-overlay');
+  var menuToggleBtn = document.getElementById('menu-toggle');
+  // 移动端侧边栏开关(抽屉式)
+  function isMobile() { return window.matchMedia('(max-width: 640px)').matches; }
+  function autoFocus(el) { if (!isMobile()) setTimeout(function() { el.focus(); }, 50); }
+  function openSidebar() {
+    sidebarEl.classList.add('show');
+    sidebarOverlay.classList.add('show');
+    menuToggleBtn.classList.add('active');
+  }
+  function closeSidebar() {
+    sidebarEl.classList.remove('show');
+    sidebarOverlay.classList.remove('show');
+    menuToggleBtn.classList.remove('active');
+  }
+  function toggleSidebar() {
+    if (sidebarEl.classList.contains('show')) closeSidebar();
+    else openSidebar();
+  }
+  menuToggleBtn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    toggleSidebar();
+  });
+  // 点击遮罩层收起侧边栏
+  sidebarOverlay.addEventListener('click', closeSidebar);
+  // 窗口尺寸变化时,桌面端强制收起抽屉(避免残留 show 类)
+  window.addEventListener('resize', function() {
+    if (!isMobile()) closeSidebar();
+  });
+
+  // ---------- 移动端操作面板 ----------
+  function openActionPanel() {
+    actionPanel.classList.add('show');
+    actionOverlay.classList.add('show');
+    document.body.classList.add('drawer-open');
+    refreshActionPanel();
+  }
+  function closeActionPanel() {
+    actionPanel.classList.remove('show');
+    actionOverlay.classList.remove('show');
+    document.body.classList.remove('drawer-open');
+  }
+  function refreshActionPanel() {
+    // 用户信息
+    if (myName) {
+      actionUserInfo.style.display = 'flex';
+      actionUserName.textContent = myName;
+      actionAdminBadge.style.display = isAdmin ? 'inline-block' : 'none';
+      actionAdminBadge.textContent = isSuperAdmin ? '主管理员' : '管理员';
+    } else {
+      actionUserInfo.style.display = 'none';
+    }
+    // 房间管理按钮
+    actionRoomAdminBtn.style.display = (isOwner || isAdmin || isRoomManager) && currentRoom ? 'flex' : 'none';
+    // 管理后台按钮
+    actionGroupAdmin.style.display = isAdmin ? 'flex' : 'none';
+    // 改密按钮
+    actionChangePwdBtn.style.display = (isRegistered || isSuperAdmin) ? 'flex' : 'none';
+    // 登出按钮
+    if (myName) {
+      actionLogoutBtn.style.display = 'flex';
+      actionLogoutLabel.textContent = isRegistered ? '登出' : '切换用户';
+    } else {
+      actionLogoutBtn.style.display = 'none';
+    }
+    // 在线人数
+    actionOnlineCount.textContent = currentUsers.length;
+    // 用户列表
+    renderActionUserList();
+  }
+  function renderActionUserList() {
+    actionUserListEl.innerHTML = '';
+    var kw = actionUserSearch.value.trim().toLowerCase();
+    var filtered = kw ? currentUsers.filter(function(name) { return name.toLowerCase().indexOf(kw) >= 0; }) : currentUsers;
+    if (!filtered.length) {
+      var empty = document.createElement('li');
+      empty.className = 'action-user-list-empty';
+      empty.textContent = kw ? '没有匹配的用户' : '暂无在线用户';
+      actionUserListEl.appendChild(empty);
+      return;
+    }
+    filtered.forEach(function(name) {
+      var li = document.createElement('li');
+      if (currentRoom && name === currentRoom.owner) li.className = 'is-owner-li';
+      var dot = document.createElement('span'); dot.className = 'u-dot';
+      var nameSpan = document.createElement('span'); nameSpan.textContent = name;
+      li.appendChild(dot); li.appendChild(nameSpan);
+      if (currentRoom && name === currentRoom.owner) {
+        var ownerTag = document.createElement('span'); ownerTag.className = 'name-owner-tag'; ownerTag.textContent = '房主'; li.appendChild(ownerTag);
+      }
+      if (currentRoom && Array.isArray(currentRoom.managers) && currentRoom.managers.indexOf(name) >= 0 && name !== currentRoom.owner) {
+        var mgrTag = document.createElement('span'); mgrTag.className = 'name-mgr-tag'; mgrTag.textContent = '管理'; li.appendChild(mgrTag);
+      }
+      if (name === myName) {
+        var tag = document.createElement('span'); tag.className = 'me-tag'; tag.textContent = '我'; li.appendChild(tag);
+      } else {
+        var hint = document.createElement('span'); hint.className = 'pm-hint'; hint.textContent = '点击私聊'; li.appendChild(hint);
+        li.addEventListener('click', function() { openPrivateTab(name); closeActionPanel(); });
+      }
+      actionUserListEl.appendChild(li);
+    });
+  }
+  var quotePreview = document.getElementById('quote-preview');
+  var qpText = document.getElementById('qp-text');
+  var qpCancel = document.getElementById('qp-cancel');
+  var fileInput = document.getElementById('file-input');
+  var uploadBtn = document.getElementById('upload-btn');
+  var uploadProgress = document.getElementById('upload-progress');
+  var upBar = document.getElementById('up-bar');
+  var upPct = document.getElementById('up-pct');
+  var upStatus = document.getElementById('up-status');
+  var lightbox = document.getElementById('lightbox');
+  var lightboxImg = document.getElementById('lightbox-img');
+  var adminBadge = document.getElementById('admin-badge');
+  var adminBtnOpen = document.getElementById('admin-btn-open');
+  var logoutBtn = document.getElementById('logout-btn');
+  var changePwdBtn = document.getElementById('change-pwd-btn');
+  var changePwdModal = document.getElementById('change-pwd-modal');
+  var cpOld = document.getElementById('cp-old');
+  var cpNew = document.getElementById('cp-new');
+  var cpNew2 = document.getElementById('cp-new2');
+  var cpErr = document.getElementById('cp-err');
+  var cpSubmit = document.getElementById('cp-submit');
+  var cpClose = document.getElementById('cp-close');
+  var adminPanel = document.getElementById('admin-panel');
+  var adminClose = document.getElementById('admin-close');
+  var muteSwitch = document.getElementById('mute-switch');
+  var muteLabel = document.getElementById('mute-label');
+  var muteBanner = document.getElementById('mute-banner');
+  var kickTarget = document.getElementById('kick-target');
+  var kickDuration = document.getElementById('kick-duration');
+  var kickBtn = document.getElementById('kick-btn');
+  var privatePairsList = document.getElementById('private-pairs-list');
+  var adminPrivateView = document.getElementById('admin-private-view');
+  var apvTitle = document.getElementById('apv-title');
+  var apvMessages = document.getElementById('apv-messages');
+  // 清理后台相关 DOM
+  var cleanStats = document.getElementById('clean-stats');
+  var cleanConfig = document.getElementById('clean-config');
+  var cleanDays = document.getElementById('clean-days');
+  var cleanOldBtn = document.getElementById('clean-old-btn');
+  var cleanRevokedBtn = document.getElementById('clean-revoked-btn');
+  var cleanRoomsBtn = document.getElementById('clean-rooms-btn');
+  var cleanResetBtn = document.getElementById('clean-reset-btn');
+  var cleanResetRow = document.getElementById('clean-reset-row');
+  var cleanTriggerBtn = document.getElementById('clean-trigger-btn');
+  var cleanResult = document.getElementById('clean-result');
+  // 管理员列表相关 DOM
+  var adminManageSection = document.getElementById('admin-manage-section');
+  var adminListEl = document.getElementById('admin-list');
+  var newAdminName = document.getElementById('new-admin-name');
+  var addAdminBtn = document.getElementById('add-admin-btn');
+  // 管理后台:房间/用户管理 DOM
+  var adminRoomsSearch = document.getElementById('admin-rooms-search');
+  var adminRoomsListEl = document.getElementById('admin-rooms-list');
+  var adminUsersSearch = document.getElementById('admin-users-search');
+  var adminUsersListEl = document.getElementById('admin-users-list');
+  var adminUploadsSearch = document.getElementById('admin-uploads-search');
+  var adminUploadsListEl = document.getElementById('admin-uploads-list');
+  var adminRoomsData = [];   // 所有房间数据
+  var adminUploadsData = []; // 上传记录数据
+  var adminUsersData = [];   // 所有用户数据
+  // 房间相关 DOM
+  var roomTitle = document.getElementById('room-title');
+  var roomsBtnOpen = document.getElementById('rooms-btn-open');
+  var roomAdminBtnOpen = document.getElementById('room-admin-btn-open');
+  var roomsPanel = document.getElementById('rooms-panel');
+  var roomsClose = document.getElementById('rooms-close');
+  var roomsListEl = document.getElementById('rooms-list');
+  var roomsSearch = document.getElementById('rooms-search');
+  var createRoomBtn = document.getElementById('create-room-btn');
+  var createRoomModal = document.getElementById('create-room-modal');
+  var crClose = document.getElementById('cr-close');
+  var crName = document.getElementById('cr-name');
+  var crPassword = document.getElementById('cr-password');
+  var crPrivate = document.getElementById('cr-private');
+  var crSubmit = document.getElementById('cr-submit');
+  var crErr = document.getElementById('cr-err');
+  var crIdle = document.getElementById('cr-idle');
+  var crIdleWrap = document.getElementById('cr-idle-wrap');
+  var joinRoomModal = document.getElementById('join-room-modal');
+  var jrTitle = document.getElementById('jr-title');
+  var jrClose = document.getElementById('jr-close');
+  var jrPassword = document.getElementById('jr-password');
+  var jrSubmit = document.getElementById('jr-submit');
+  var jrErr = document.getElementById('jr-err');
+  var roomAdminPanel = document.getElementById('room-admin-panel');
+  var raClose = document.getElementById('ra-close');
+  var rmName = document.getElementById('rm-name');
+  var rmPassword = document.getElementById('rm-password');
+  var rmPrivate = document.getElementById('rm-private');
+  var rmMuteSwitch = document.getElementById('rm-mute-switch');
+  var rmMuteLabel = document.getElementById('rm-mute-label');
+  var rmTransfer = document.getElementById('rm-transfer');
+  var rmTransferBtn = document.getElementById('rm-transfer-btn');
+  var rmUpdateBtn = document.getElementById('rm-update-btn');
+  var rmDeleteBtn = document.getElementById('rm-delete-btn');
+  var rmSecName = document.getElementById('rm-sec-name');
+  var rmSecPassword = document.getElementById('rm-sec-password');
+  var rmSecType = document.getElementById('rm-sec-type');
+  var rmSecTransfer = document.getElementById('rm-sec-transfer');
+  var rmSecDanger = document.getElementById('rm-sec-danger');
+  var rmDivider1 = document.getElementById('rm-divider-1');
+  var rmDivider2 = document.getElementById('rm-divider-2');
+  var rmManagerList = document.getElementById('rm-manager-list');
+  var rmManagerName = document.getElementById('rm-manager-name');
+  var rmManagerAdd = document.getElementById('rm-manager-add');
+  var rmManagerAddRow = document.getElementById('rm-manager-add-row');
+  var roomMuteBanner = document.getElementById('room-mute-banner');
+
+  // 移动端操作面板
+  var actionToggle = document.getElementById('action-toggle');
+  var actionOverlay = document.getElementById('action-overlay');
+  var actionPanel = document.getElementById('action-panel');
+  var actionPanelClose = document.getElementById('action-panel-close');
+  var actionUserInfo = document.getElementById('action-user-info');
+  var actionUserName = document.getElementById('action-user-name');
+  var actionAdminBadge = document.getElementById('action-admin-badge');
+  var actionRoomsBtn = document.getElementById('action-rooms-btn');
+  var actionRoomAdminBtn = document.getElementById('action-room-admin-btn');
+  var actionGroupAdmin = document.getElementById('action-group-admin');
+  var actionAdminBtn = document.getElementById('action-admin-btn');
+  var actionChangePwdBtn = document.getElementById('action-change-pwd-btn');
+  var actionLogoutBtn = document.getElementById('action-logout-btn');
+  var actionLogoutLabel = document.getElementById('action-logout-label');
+  var actionOnlineCount = document.getElementById('action-online-count');
+  var actionUserSearch = document.getElementById('action-user-search');
+  var actionUserListEl = document.getElementById('action-user-list');
+
+  // 操作面板事件监听
+  actionToggle.addEventListener('click', function(e) {
+    e.stopPropagation();
+    openActionPanel();
+  });
+  actionOverlay.addEventListener('click', closeActionPanel);
+  actionPanelClose.addEventListener('click', closeActionPanel);
+  actionUserSearch.addEventListener('input', renderActionUserList);
+  // 按钮事件:在面板范围内打开页面(保持 drawer-open 状态使 modal 约束在右侧)
+  actionRoomsBtn.addEventListener('click', function() { roomsBtnOpen.click(); });
+  actionRoomAdminBtn.addEventListener('click', function() { roomAdminBtnOpen.click(); });
+  actionAdminBtn.addEventListener('click', function() { adminBtnOpen.click(); });
+  actionChangePwdBtn.addEventListener('click', function() { changePwdBtn.click(); });
+  actionLogoutBtn.addEventListener('click', function() { if (logout()) closeActionPanel(); });
+  // 窗口尺寸变化时,桌面端收起操作面板
+  window.addEventListener('resize', function() {
+    if (!isMobile()) closeActionPanel();
+  });
+
+  // 状态
+  var myName = '', ws = null, reconnectTimer = null, reconnectDelay = 1000, joined = false;
+  var initialConnectDone = false; // 首次连接完成(用于控制 token 自动登录只执行一次)
+  var isAdmin = false, isSuperAdmin = false, globalMuted = false, isRegistered = false;
+  var currentUsers = [];
+  var activePeer = '';  // '' = 当前房间群聊, 'peerName' = 与 peer 的私聊
+  var conversations = {};  // 键: 'room:ID' 或 'private:peer'
+  var unread = {};         // 键同上,值为未读数
+  var privateConversations = {}; // 私聊会话目录: peer -> 最后一条消息和未读数
+  var joinedRooms = [];    // 已加入房间列表 [{ id, name, owner, is_private, has_password, online }]
+  var quotingMsg = null;
+
+  // ---------- 已加入房间持久化(断线重连后恢复,解决手机端网络波动房间消失) ----------
+  function getSavedJoinedRooms() {
+    try { return JSON.parse(localStorage.getItem('chat_joined_rooms') || '[]'); } catch (e) { return []; }
+  }
+  function saveJoinedRoom(roomId) {
+    if (!roomId || roomId === 'default') return;
+    var arr = getSavedJoinedRooms();
+    if (arr.indexOf(roomId) < 0) { arr.push(roomId); localStorage.setItem('chat_joined_rooms', JSON.stringify(arr)); }
+  }
+  function removeSavedJoinedRoom(roomId) {
+    if (!roomId) return;
+    var arr = getSavedJoinedRooms().filter(function(id) { return id !== roomId; });
+    localStorage.setItem('chat_joined_rooms', JSON.stringify(arr));
+  }
+
+  // ---------- 会话键辅助函数 ----------
+  function roomConvKey(roomId) { return 'room:' + roomId; }
+  function privateConvKey(peer) { return 'private:' + peer; }
+  function activeConvKey() { return activePeer === '' ? roomConvKey(currentRoomId) : privateConvKey(activePeer); }
+  function ensureConv(key) { if (!conversations[key]) { conversations[key] = []; unread[key] = 0; } }
+  var pendingFiles = []; // 待上传队列
+  // 房间相关状态
+  var currentRoomId = 'default';     // 当前房间 ID
+  var currentRoom = null;            // 当前房间信息 { id, name, owner, is_private, has_password, muted, online }
+  var rooms = [];                    // 房间列表缓存
+  var isOwner = false;              // 是否当前房间房主
+  var isRoomManager = false;        // 是否当前房间"管理"成员
+  var roomMuted = false;             // 当前房间是否全员禁言
+  var joinRoomTarget = null;         // 待加入房间(用于密码对话框)
+  var roomsSearchKw = '';            // 房间搜索关键字
+  var userSearchKw = '';             // 用户搜索关键字
+
+  // 空闲超时小时数 -> 展示分钟数(服务端按小时存储,前端以分钟展示)
+  function idleMinutes(hours) { return hours ? Math.round(Number(hours) * 60) : 0; }
+
+  function formatTime(ts) {
+    var d = new Date(ts); var h = String(d.getHours()).padStart(2,'0'); var m = String(d.getMinutes()).padStart(2,'0'); return h+':'+m;
+  }
+  function scrollToBottom() { messagesEl.scrollTop = messagesEl.scrollHeight; }
+  function setStatus(s) {
+    statusDot.className = 'dot ' + s;
+    statusText.textContent = s === 'ok' ? '已连接' : s === 'connecting' ? '连接中…' : '已断开';
+  }
+  function escapeHtmlText(str) {
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  }
+  function cssEscape(s) { return String(s).replace(/["\\]/g, '\\$&'); }
+  function formatSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1048576) return (bytes/1024).toFixed(1) + ' KB';
+    return (bytes/1048576).toFixed(2) + ' MB';
+  }
+  function safeSend(obj) { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj)); }
+
+  // ---------- 清理后台辅助函数 ----------
+  // 字节数格式化(支持到 GB)
+  function formatBytes(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + ' KB';
+    if (bytes < 1024*1024*1024) return (bytes/1024/1024).toFixed(1) + ' MB';
+    return (bytes/1024/1024/1024).toFixed(2) + ' GB';
+  }
+  // 渲染清理后台统计信息
+  function renderCleanStats(stats) {
+    if (!stats) { cleanStats.innerHTML = '<div>加载中...</div>'; return; }
+    cleanStats.innerHTML =
+      '<div>📊 数据统计</div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;margin-top:6px">' +
+      '<div>消息总数: <b>' + stats.messages + '</b></div>' +
+      '<div>房间数量: <b>' + stats.rooms + '</b></div>' +
+      '<div>群聊消息: <b>' + stats.group_messages + '</b></div>' +
+      '<div>私聊消息: <b>' + stats.private_messages + '</b></div>' +
+      '<div>已撤回: <b style="color:var(--warn)">' + stats.revoked + '</b></div>' +
+      '<div>含文件消息: <b>' + stats.file_messages + '</b></div>' +
+      '<div>磁盘文件数: <b>' + stats.disk_files + '</b></div>' +
+      '<div>磁盘占用: <b>' + formatBytes(stats.disk_size) + '</b></div>' +
+      '</div>';
+  }
+  // 显示清理结果(8 秒后自动隐藏)
+  function showCleanResult(text, type) {
+    cleanResult.textContent = text;
+    cleanResult.className = type || 'info';
+    cleanResult.style.display = 'block';
+    setTimeout(function() { cleanResult.style.display = 'none'; }, 8000);
+  }
+  // 渲染定时清理配置
+  function renderCleanConfig(cfg) {
+    if (!cfg) { cleanConfig.textContent = '配置加载失败'; return; }
+    var html = '<div>⏰ <b>定时清理</b>: ';
+    if (cfg.enabled) {
+      html += '<b style="color:var(--ok)">已启用</b> · 每天 ' + cfg.hour + ':00 执行';
+      if (cfg.old_days > 0) html += ' · 同步清理 ' + cfg.old_days + ' 天前旧消息';
+      else html += ' · 仅清撤回+孤儿';
+      if (cfg.next_run_str) html += '<br>下次执行: <span class="next-run">' + cfg.next_run_str + '</span>';
+    } else {
+      html += '<b style="color:var(--warn)">已禁用</b> (可通过环境变量 AUTO_CLEAN_ENABLED=1 启用)';
+    }
+    html += '</div>';
+    cleanConfig.innerHTML = html;
+  }
+  // 请求最新统计信息
+  function refreshStats() { safeSend({ type: 'admin_get_stats' }); }
+  function refreshCleanConfig() { safeSend({ type: 'admin_get_clean_config' }); }
+
+  // ---------- 上传 ----------
+  function uploadFile(file) {
+    return new Promise(function(resolve, reject) {
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', '/upload');
+      xhr.setRequestHeader('X-File-Name', encodeURIComponent(file.name));
+      xhr.setRequestHeader('X-File-Mime', file.type || 'application/octet-stream');
+      // 上传者身份(可追溯):昵称 + Token + 当前房间
+      xhr.setRequestHeader('X-Uploader', myName || '');
+      var tok = localStorage.getItem('chat_token');
+      if (tok) xhr.setRequestHeader('X-Token', tok);
+      xhr.setRequestHeader('X-Room-Id', currentRoomId || 'default');
+      xhr.upload.onprogress = function(e) {
+        if (e.lengthComputable) {
+          var pct = Math.round(e.loaded / e.total * 100);
+          upBar.style.width = pct + '%';
+          upPct.textContent = pct + '%';
+        }
+      };
+      xhr.onload = function() {
+        if (xhr.status === 200) {
+          try { resolve(JSON.parse(xhr.responseText)); } catch(e) { reject(e); }
+        } else { reject(new Error('上传失败: ' + xhr.status)); }
+      };
+      xhr.onerror = function() { reject(new Error('网络错误')); };
+      xhr.send(file);
+    });
+  }
+
+  async function handleFiles(files) {
+    if (!files || !files.length) return;
+    uploadProgress.classList.add('show');
+    upBar.style.width = '0%';
+    upPct.textContent = '0%';
+    for (var i = 0; i < files.length; i++) {
+      var file = files[i];
+      upStatus.textContent = '上传 ' + file.name;
+      try {
+        var res = await uploadFile(file);
+        var content = res.is_image ? '[图片]' : file.name;
+        var msgType = activePeer === '' ? 'chat' : 'private_chat';
+        var payload = {
+          type: msgType, content: content,
+          content_type: res.is_image ? 'image' : 'file',
+          file: { name: res.name, url: res.url, size: res.size, mime: res.mime }
+        };
+        if (activePeer !== '') payload.to = activePeer; else payload.room_id = currentRoomId;
+        if (quotingMsg) { payload.quote_id = quotingMsg.id; }
+        safeSend(payload);
+        clearQuote();
+      } catch(e) {
+        renderSystem('上传失败: ' + (e.message || '未知错误'));
+      }
+    }
+    uploadProgress.classList.remove('show');
+  }
+
+  uploadBtn.addEventListener('click', function() { fileInput.click(); });
+  fileInput.addEventListener('change', function() {
+    if (fileInput.files.length) handleFiles(fileInput.files);
+    fileInput.value = '';
+  });
+  // 拖拽上传
+  document.addEventListener('dragover', function(e) { e.preventDefault(); messagesEl.classList.add('drag-over'); });
+  document.addEventListener('dragleave', function(e) { if (e.target === document) messagesEl.classList.remove('drag-over'); });
+  document.addEventListener('drop', function(e) {
+    e.preventDefault(); messagesEl.classList.remove('drag-over');
+    if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
+  });
+  // 粘贴上传
+  document.addEventListener('paste', function(e) {
+    var items = e.clipboardData && e.clipboardData.items;
+    if (!items) return;
+    var imgs = [];
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].type && items[i].type.startsWith('image/')) {
+        var f = items[i].getAsFile(); if (f) imgs.push(f);
+      }
+    }
+    if (imgs.length) { e.preventDefault(); handleFiles(imgs); }
+  });
+
+  // ---------- Lightbox ----------
+  lightbox.addEventListener('click', function() { lightbox.classList.remove('show'); });
+  function openLightbox(src) { lightboxImg.src = src; lightbox.classList.add('show'); }
+
+  // ---------- 会话切换 ----------
+  // 根据当前房间与我的昵称刷新房主/房间"管理"身份
+  function updateMyRoomRole() {
+    isOwner = !!(currentRoom && currentRoom.owner === myName);
+    isRoomManager = !!(currentRoom && Array.isArray(currentRoom.managers) && currentRoom.managers.indexOf(myName) >= 0);
+  }
+  function switchTab(peer) {
+    activePeer = peer;
+    var key = activeConvKey();
+    ensureConv(key);
+    unread[key] = 0;
+    // 切换到房间时更新房间上下文
+    if (peer === '' && currentRoom) {
+      updateMyRoomRole();
+      roomMuted = !!currentRoom.muted;
+      updateRoomTitle(); updateRoomMuteBanner(); updateRoomAdminBtn();
+    }
+    renderSidebar();
+    renderConversation(); clearQuote(); autoFocus(inputEl);
+  }
+  // 切换到指定房间(侧边栏点击房间项时调用)
+  function switchRoom(roomId) {
+    var r = joinedRooms.find(function(x) { return x.id === roomId; });
+    if (r) {
+      currentRoom = r; currentRoomId = r.id;
+      updateMyRoomRole(); roomMuted = !!r.muted;
+      updateRoomTitle(); updateRoomMuteBanner(); updateRoomAdminBtn();
+    }
+    switchTab('');
+    // 标记该房间已读(服务端持久化,刷新后可同步)
+    if (roomId) safeSend({ type: 'mark_room_read', room_id: roomId });
+    // 切换房间后刷新当前房间的在线用户列表(同一用户可在不同房间分别统计)
+    if (roomId) safeSend({ type: 'view_room_users', room_id: roomId });
+  }
+  function openPrivateTab(peer) {
+    if (peer === myName) return;
+    var key = privateConvKey(peer);
+    ensureConv(key);
+    unread[key] = 0;
+    if (privateConversations[peer]) privateConversations[peer].unread = 0;
+    safeSend({ type: 'mark_private_read', peer: peer });
+    if (!conversations[key].length) safeSend({ type: 'private_history', peer: peer });
+    userPanel.classList.add('hidden'); onlineCountEl.classList.remove('open');
+    switchTab(peer);
+    renderSidebar();
+  }
+  function closePrivateConv(peer) {
+    var key = privateConvKey(peer);
+    delete conversations[key]; delete unread[key];
+    if (activePeer === peer) switchTab('');
+    renderSidebar();
+  }
+
+  // ---------- 侧边栏渲染 ----------
+  function renderSidebar() {
+    // 房间列表
+    sidebarRoomsEl.innerHTML = '';
+    joinedRooms.forEach(function(r) {
+      var key = roomConvKey(r.id);
+      var item = document.createElement('div');
+      item.className = 'sidebar-item' + (activePeer === '' && currentRoomId === r.id ? ' active' : '');
+      var icon = document.createElement('span');
+      icon.className = 'si-icon';
+      icon.textContent = r.has_password ? '🔒' : (r.is_private ? '🔐' : '💬');
+      var info = document.createElement('div');
+      info.className = 'si-info';
+      var name = document.createElement('div');
+      name.className = 'si-name';
+      name.textContent = r.name || r.id;
+      var meta = document.createElement('div');
+      meta.className = 'si-meta';
+      meta.textContent = (r.online || 0) + ' 人在线' + (r.idle_timeout_hours && !r.is_private ? ' · 持续' + idleMinutes(r.idle_timeout_hours) + '分钟无人后关闭' : '');
+      info.appendChild(name); info.appendChild(meta);
+      item.appendChild(icon); item.appendChild(info);
+      var n = unread[key] || 0;
+      if (n > 0) {
+        var badge = document.createElement('span');
+        badge.className = 'si-badge';
+        badge.textContent = n > 99 ? '99+' : String(n);
+        item.appendChild(badge);
+      }
+      // 非默认房间显示离开按钮
+      if (r.id !== 'default') {
+        var closeEl = document.createElement('span');
+        closeEl.className = 'si-close';
+        closeEl.textContent = '×';
+        closeEl.title = '离开房间';
+        closeEl.addEventListener('click', function(e) {
+          e.stopPropagation();
+          if (confirm('离开房间 "' + (r.name || '') + '"?')) safeSend({ type: 'leave_room', room_id: r.id });
+        });
+        item.appendChild(closeEl);
+      }
+      item.addEventListener('click', function() { switchRoom(r.id); closeSidebar(); });
+      sidebarRoomsEl.appendChild(item);
+    });
+    // 私聊列表
+    sidebarPrivatesEl.innerHTML = '';
+    var privatePeers = Object.keys(privateConversations);
+    Object.keys(conversations).forEach(function(key) {
+      if (key.indexOf('private:') !== 0) return;
+      var cachedPeer = key.slice(8);
+      if (privatePeers.indexOf(cachedPeer) < 0) privatePeers.push(cachedPeer);
+    });
+    privatePeers.sort(function(a, b) {
+      return (privateConversations[b] ? privateConversations[b].last_time : 0) -
+        (privateConversations[a] ? privateConversations[a].last_time : 0);
+    });
+    if (!privatePeers.length) {
+      var empty = document.createElement('div');
+      empty.className = 'sidebar-empty';
+      empty.textContent = '点击在线用户开始私聊';
+      sidebarPrivatesEl.appendChild(empty);
+    } else {
+      privatePeers.forEach(function(peer) {
+        var key = privateConvKey(peer);
+        var item = document.createElement('div');
+        item.className = 'sidebar-item' + (activePeer === peer ? ' active' : '');
+        var icon = document.createElement('span');
+        icon.className = 'si-icon';
+        icon.textContent = '👤';
+        var info = document.createElement('div');
+        info.className = 'si-info';
+        var name = document.createElement('div');
+        name.className = 'si-name';
+        name.textContent = peer;
+        info.appendChild(name);
+        var summary = privateConversations[peer];
+        if (summary && summary.last_content) {
+          var preview = document.createElement('div');
+          preview.className = 'si-meta';
+          preview.textContent = (summary.last_sender === myName ? '我: ' : '') + summary.last_content;
+          info.appendChild(preview);
+        }
+        item.appendChild(icon); item.appendChild(info);
+        var n = unread[key] || (summary ? Number(summary.unread || 0) : 0);
+        if (n > 0) {
+          var badge = document.createElement('span');
+          badge.className = 'si-badge';
+          badge.textContent = n > 99 ? '99+' : String(n);
+          item.appendChild(badge);
+        }
+        var closeEl = document.createElement('span');
+        closeEl.className = 'si-close';
+        closeEl.textContent = '×';
+        closeEl.title = '关闭私聊';
+        closeEl.addEventListener('click', function(e) {
+          e.stopPropagation();
+          closePrivateConv(peer);
+        });
+        item.appendChild(closeEl);
+        item.addEventListener('click', function() { openPrivateTab(peer); closeSidebar(); });
+        sidebarPrivatesEl.appendChild(item);
+      });
+    }
+  }
+
+  // ---------- 渲染 ----------
+  function renderConversation() {
+    messagesEl.innerHTML = '';
+    var key = activeConvKey();
+    var list = conversations[key] || [];
+    list.forEach(function(m) {
+      if (activePeer === '') renderGroupMessage(m); else renderPrivateMessage(m);
+    });
+    scrollToBottom();
+  }
+  function renderGroupMessage(msg) {
+    var mine = msg.name === myName;
+    appendMsg(mine, mine ? '我' : msg.name, msg.time, msg.content, msg.content_type, msg.file, msg.quote, msg.revoked, msg.id, msg.revoked_by);
+  }
+  function renderPrivateMessage(msg) {
+    var mine = msg.from === myName;
+    appendMsg(mine, mine ? '我' : msg.from, msg.time, msg.content, msg.content_type, msg.file, msg.quote, msg.revoked, msg.id, msg.revoked_by);
+  }
+
+  function appendMsg(mine, label, time, content, contentType, file, quote, revoked, id, revokedBy) {
+    var div = document.createElement('div');
+    div.className = 'msg ' + (mine ? 'me' : 'other');
+    div.dataset.id = id;
+
+    var meta = document.createElement('div');
+    meta.className = 'meta';
+    meta.textContent = label + ' · ' + formatTime(time);
+
+    var bubbleWrap = document.createElement('div');
+    bubbleWrap.className = 'bubble-wrap';
+
+    if (revoked) {
+      var rt = document.createElement('div');
+      rt.className = 'revoked-text';
+      if (revokedBy) {
+        rt.textContent = revokedBy === myName ? '你撤回了一条消息' : (revokedBy + ' 撤回了一条消息');
+      } else {
+        rt.textContent = '消息已撤回';
+      }
+      bubbleWrap.appendChild(rt);
+      div.appendChild(meta); div.appendChild(bubbleWrap);
+      messagesEl.appendChild(div); scrollToBottom(); return;
+    }
+
+    var bubble = document.createElement('div');
+    bubble.className = 'bubble';
+
+    if (quote) {
+      var qb = document.createElement('div'); qb.className = 'quote-block';
+      var qs = document.createElement('div'); qs.className = 'q-sender';
+      qs.textContent = quote.sender === myName ? '我' : quote.sender;
+      var qc = document.createElement('div'); qc.className = 'q-content'; qc.textContent = quote.content;
+      qb.appendChild(qs); qb.appendChild(qc); bubble.appendChild(qb);
+    }
+
+    if (contentType === 'image' && file) {
+      var img = document.createElement('img');
+      img.className = 'msg-img'; img.src = file.url; img.alt = '图片';
+      img.addEventListener('click', function() {
+        // 图片已失效时不响应点击
+        if (img.classList.contains('msg-img-broken')) return;
+        openLightbox(file.url);
+      });
+      // 图片加载失败:文件已被清理(撤回/孤儿清理/R2 删除),显示占位
+      img.addEventListener('error', function() {
+        if (img.classList.contains('msg-img-broken')) return; // 防止死循环
+        img.classList.add('msg-img-broken');
+        img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
+          '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="120" viewBox="0 0 200 120">' +
+          '<rect width="200" height="120" fill="#f5f5f5"/><text x="100" y="55" font-size="12" fill="#999" text-anchor="middle">图片已失效</text>' +
+          '<text x="100" y="75" font-size="10" fill="#bbb" text-anchor="middle">文件已被清理</text></svg>'
+        );
+        img.alt = '图片已失效';
+        img.style.cursor = 'default';
+      });
+      bubble.appendChild(img);
+    } else if (contentType === 'file' && file) {
+      var fc = document.createElement('div'); fc.className = 'file-card';
+      var fi = document.createElement('div'); fi.className = 'file-icon'; fi.textContent = '📎';
+      var finfo = document.createElement('div'); finfo.className = 'file-info';
+      var fn = document.createElement('div'); fn.className = 'fn'; fn.textContent = file.name;
+      var fs = document.createElement('div'); fs.className = 'fs'; fs.textContent = formatSize(file.size);
+      finfo.appendChild(fn); finfo.appendChild(fs);
+      fc.appendChild(fi); fc.appendChild(finfo);
+      // 文件下载失败提示(通过 HEAD 请求预检,失败则标红)
+      fc.addEventListener('click', function() {
+        // 先尝试 HEAD 预检,失败则提示文件已被清理
+        var xhr = new XMLHttpRequest();
+        xhr.open('HEAD', file.url);
+        xhr.timeout = 3000;
+        xhr.onload = function() {
+          if (xhr.status >= 200 && xhr.status < 400) {
+            window.open(file.url, '_blank');
+          } else {
+            fc.classList.add('file-card-broken');
+            fn.textContent = file.name + ' (文件已失效)';
+            fn.style.color = 'var(--warn)';
+          }
+        };
+        xhr.onerror = function() {
+          fc.classList.add('file-card-broken');
+          fn.textContent = file.name + ' (文件已失效)';
+          fn.style.color = 'var(--warn)';
+        };
+        xhr.send();
+      });
+      bubble.appendChild(fc);
+    } else {
+      var c = document.createElement('span'); c.textContent = content;
+      bubble.appendChild(c);
+    }
+
+    bubbleWrap.appendChild(bubble);
+
+    // 悬浮操作：引用 + 撤回
+    var actions = document.createElement('div'); actions.className = 'msg-actions';
+    var quoteBtn = document.createElement('button'); quoteBtn.textContent = '引用';
+    quoteBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      var senderName = label === '我' ? myName : label;
+      startQuote({ id: id, sender: senderName, content: content || (file ? file.name : '') });
+    });
+    actions.appendChild(quoteBtn);
+    // 撤回按钮：本人2分钟内 或 管理员
+    var canRevoke = isAdmin || (mine && (Date.now() - time) <= 120000);
+    if (canRevoke) {
+      var revokeBtn = document.createElement('button'); revokeBtn.textContent = '撤回'; revokeBtn.className = 'danger';
+      revokeBtn.addEventListener('click', function(e) { e.stopPropagation(); safeSend({ type: 'revoke', id: id, room_id: currentRoomId }); });
+      actions.appendChild(revokeBtn);
+    }
+    bubbleWrap.appendChild(actions);
+
+    // 移动端长按 500ms 显示/隐藏操作按钮(替代桌面端 hover)
+    (function attachLongPress() {
+      var pressTimer = null;
+      var moved = false;
+      function showActions() {
+        // 隐藏其他消息已显示的操作按钮
+        var shown = messagesEl.querySelectorAll('.msg-actions.show');
+        shown.forEach(function(el) { el.classList.remove('show'); });
+        actions.classList.add('show');
+      }
+      function hideActions() { actions.classList.remove('show'); }
+      bubble.addEventListener('touchstart', function(e) {
+        if (e.touches.length !== 1) return;
+        moved = false;
+        div.classList.add('long-pressing');
+        pressTimer = setTimeout(function() {
+          pressTimer = null;
+          showActions();
+          // 触觉反馈(支持的设备)
+          if (navigator.vibrate) navigator.vibrate(15);
+        }, 500);
+      }, { passive: true });
+      bubble.addEventListener('touchmove', function() {
+        moved = true;
+        if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+        div.classList.remove('long-pressing');
+      }, { passive: true });
+      bubble.addEventListener('touchend', function(e) {
+        div.classList.remove('long-pressing');
+        if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+        // 长按已触发显示操作按钮时,阻止后续 click 事件(避免误触图片放大等)
+        if (actions.classList.contains('show')) {
+          // 点击操作按钮区域不阻止,点击气泡其他区域则隐藏
+          if (!e.target.closest('.msg-actions')) {
+            e.preventDefault();
+          }
+        }
+      });
+      bubble.addEventListener('touchcancel', function() {
+        if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+        div.classList.remove('long-pressing');
+      });
+    })();
+
+    div.appendChild(meta); div.appendChild(bubbleWrap);
+    messagesEl.appendChild(div); scrollToBottom();
+  }
+
+  function renderSystem(text) {
+    var div = document.createElement('div'); div.className = 'system-msg'; div.textContent = text;
+    messagesEl.appendChild(div); scrollToBottom();
+  }
+  function updateOnlineCount(count) { onlineCountEl.textContent = '在线 ' + count; actionOnlineCount.textContent = count || 0; }
+  function renderUserList(users) {
+    currentUsers = users || [];
+    userPanelCount.textContent = currentUsers.length;
+    actionOnlineCount.textContent = currentUsers.length;
+    // 同步操作面板在线用户列表(面板打开时)
+    if (actionPanel.classList.contains('show')) renderActionUserList();
+    // 同步踢人下拉(始终展示全部用户,不受搜索影响)
+    kickTarget.innerHTML = '<option value="">选择用户</option>';
+    currentUsers.forEach(function(name) {
+      var opt = document.createElement('option'); opt.value = name; opt.textContent = name;
+      kickTarget.appendChild(opt);
+    });
+    // 渲染用户列表(按关键字过滤)
+    userListEl.innerHTML = '';
+    var kw = userSearchKw.trim().toLowerCase();
+    var filtered = kw ? currentUsers.filter(function(name) { return name.toLowerCase().indexOf(kw) >= 0; }) : currentUsers;
+    if (!filtered.length) {
+      var empty = document.createElement('li');
+      empty.style.cssText = 'color:var(--text-muted);cursor:default;justify-content:center';
+      empty.textContent = kw ? '没有匹配的用户' : '暂无在线用户';
+      userListEl.appendChild(empty);
+      return;
+    }
+    filtered.forEach(function(name) {
+      var li = document.createElement('li');
+      // 房主行加标记样式
+      if (currentRoom && name === currentRoom.owner) li.className = 'is-owner-li';
+      var dot = document.createElement('span'); dot.className = 'u-dot';
+      var nameSpan = document.createElement('span'); nameSpan.textContent = name;
+      li.appendChild(dot); li.appendChild(nameSpan);
+      // 房主标签
+      if (currentRoom && name === currentRoom.owner) {
+        var ownerTag = document.createElement('span'); ownerTag.className = 'name-owner-tag'; ownerTag.textContent = '房主'; li.appendChild(ownerTag);
+      }
+      // 房间"管理"标签
+      if (currentRoom && Array.isArray(currentRoom.managers) && currentRoom.managers.indexOf(name) >= 0 && name !== currentRoom.owner) {
+        var mgrTag = document.createElement('span'); mgrTag.className = 'name-mgr-tag'; mgrTag.textContent = '管理'; li.appendChild(mgrTag);
+      }
+      if (name === myName) {
+        var tag = document.createElement('span'); tag.className = 'me-tag'; tag.textContent = '我'; li.appendChild(tag);
+      } else {
+        var hint = document.createElement('span'); hint.className = 'pm-hint'; hint.textContent = '点击私聊'; li.appendChild(hint);
+        li.addEventListener('click', function() { openPrivateTab(name); });
+        // 踢人按钮(房主/管理员/房间管理可见,不能踢房主)
+        var canKick = (isOwner || isAdmin || isRoomManager) && (!currentRoom || name !== currentRoom.owner);
+        // 房间"管理"权限低于房主/管理员:不能对其他房间管理使用
+        if (isRoomManager && !isOwner && !isAdmin && currentRoom && Array.isArray(currentRoom.managers) && currentRoom.managers.indexOf(name) >= 0) canKick = false;
+        if (canKick) {
+          // 公共大厅无法"踢出房间",改为"强制下线"(需管理员权限)
+          var isDefaultRoom = currentRoomId === 'default';
+          if (isDefaultRoom && !isAdmin) return;
+          var kickRoomBtn = document.createElement('button');
+          kickRoomBtn.className = 'kick-btn';
+          if (isDefaultRoom) {
+            kickRoomBtn.textContent = '强制下线';
+            kickRoomBtn.addEventListener('click', function(e) {
+              e.stopPropagation();
+              var input = prompt('强制下线时长(分钟,可填小数,0=永久禁止进入,上限7天):', '10');
+              if (input === null) return;
+              var m = parseFloat(input);
+              if (isNaN(m) || m < 0) { alert('请输入有效的分钟数'); return; }
+              if (m > 10080) { alert('时长不能超过 7 天(10080 分钟)'); return; }
+              if (!confirm('将 ' + name + ' 强制下线' + (m > 0 ? '(' + m + ' 分钟)' : '(永久)') + '?')) return;
+              safeSend({ type: 'admin_kick', name: name, duration_minutes: m });
+            });
+          } else {
+            kickRoomBtn.textContent = '踢出';
+            kickRoomBtn.addEventListener('click', function(e) {
+              e.stopPropagation();
+              if (!confirm('将 ' + name + ' 踢出当前房间？（60 秒后可重新加入）')) return;
+              safeSend({ type: 'room_kick', room_id: currentRoomId, name: name, duration: 60 });
+            });
+          }
+          li.appendChild(kickRoomBtn);
+        }
+      }
+      userListEl.appendChild(li);
+    });
+  }
+
+  // ---------- 房间"管理"成员列表 ----------
+  function renderRoomManagers() {
+    if (!rmManagerList) return;
+    rmManagerList.innerHTML = '';
+    var managers = (currentRoom && Array.isArray(currentRoom.managers)) ? currentRoom.managers : [];
+    if (!managers.length) {
+      var emptyLi = document.createElement('li');
+      emptyLi.style.cssText = 'color:var(--text-muted);justify-content:center;cursor:default';
+      emptyLi.textContent = '暂无房间管理';
+      rmManagerList.appendChild(emptyLi);
+      return;
+    }
+    managers.forEach(function(name) {
+      var li = document.createElement('li');
+      var nm = document.createElement('span');
+      nm.className = 'rm-mg-name';
+      nm.textContent = name;
+      li.appendChild(nm);
+      // 仅房主/管理员可取消管理
+      if (isOwner || isAdmin) {
+        var rmBtn = document.createElement('button');
+        rmBtn.textContent = '取消管理';
+        rmBtn.addEventListener('click', function() {
+          if (!confirm('确认取消 ' + name + ' 的房间管理权限?')) return;
+          safeSend({ type: 'set_room_manager', room_id: currentRoomId, name: name, on: false });
+        });
+        li.appendChild(rmBtn);
+      }
+      rmManagerList.appendChild(li);
+    });
+  }
+
+  // ---------- 引用 ----------
+  function startQuote(msg) {
+    quotingMsg = msg;
+    var senderLabel = msg.sender === myName ? '我' : msg.sender;
+    qpText.innerHTML = '引用 <b>' + escapeHtmlText(senderLabel) + '</b>：' + escapeHtmlText(msg.content);
+    quotePreview.classList.add('show'); inputEl.focus();
+  }
+  function clearQuote() { quotingMsg = null; quotePreview.classList.remove('show'); qpText.innerHTML = ''; }
+  qpCancel.addEventListener('click', clearQuote);
+
+  // ---------- WebSocket ----------
+  function connect() {
+    setStatus('connecting');
+    var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    try { ws = new WebSocket(proto + '//' + location.host); } catch(e) { scheduleReconnect(); return; }
+    ws.onopen = function() {
+      setStatus('ok');
+      // 重连场景:之前已登录,则恢复身份
+      if (myName && joined) {
+        // 优先用 token 重连(注册用户)
+        var token = localStorage.getItem('chat_token');
+        if (token) safeSend({ type: 'login', token: token });
+        else sendSetName(myName);
+      } else if (!initialConnectDone) {
+        // 首次连接:尝试自动登录(注册用户优先 token,临时用户恢复昵称)
+        initialConnectDone = true;
+        var token = localStorage.getItem('chat_token');
+        if (token) {
+          safeSend({ type: 'login', token: token });
+        } else {
+          var guestName = localStorage.getItem('chat_guest_name');
+          if (guestName) sendSetName(guestName);
+        }
+      }
+      // 未登录/未进入时:等待用户操作,由 waitConnected 的回调发送 set_name/login/register,
+      // 避免 onopen 与回调重复发送导致同名连接自踢
+    };
+    ws.onmessage = function(ev) { var msg; try { msg = JSON.parse(ev.data); } catch(e) { return; } handleMsg(msg); };
+    ws.onclose = function() { setStatus(''); ws = null; inputEl.disabled = true; sendBtn.disabled = true; if (joined) scheduleReconnect(); };
+    ws.onerror = function() {};
+  }
+  function scheduleReconnect() {
+    if (reconnectTimer) return;
+    reconnectTimer = setTimeout(function() { reconnectTimer = null; reconnectDelay = Math.min(reconnectDelay * 2, 10000); connect(); }, reconnectDelay);
+  }
+
+  function handleMsg(msg) {
+    if (msg.type === 'history') {
+      // 房间历史(初始 default 或 room_joined 之外的历史推送)
+      var hk = roomConvKey(msg.room_id || 'default');
+      conversations[hk] = msg.data || []; unread[hk] = 0;
+      if (activeConvKey() === hk) renderConversation();
+    } else if (msg.type === 'chat') {
+      // 按房间 ID 路由消息
+      var ck = roomConvKey(msg.room_id || 'default');
+      ensureConv(ck);
+      conversations[ck].push(msg);
+      if (activeConvKey() === ck) {
+        renderGroupMessage(msg);
+        // 正在查看该房间,标记已读(服务端持久化,刷新后不误计)
+        if (msg.room_id) safeSend({ type: 'mark_room_read', room_id: msg.room_id });
+      } else if (msg.name !== myName) {
+        unread[ck] = (unread[ck]||0)+1; renderSidebar();
+      }
+    } else if (msg.type === 'name_set') {
+      joined = true; overlay.style.display = 'none';
+      inputEl.disabled = false; sendBtn.disabled = false; autoFocus(inputEl);
+      myName = msg.name; // 确保 myName 正确(登录/注册用户也设置)
+      isAdmin = !!msg.is_admin; isSuperAdmin = !!msg.is_super_admin; globalMuted = !!msg.global_muted;
+      isRegistered = !!msg.is_registered;
+      if (!isRegistered) localStorage.setItem('chat_guest_name', myName);
+      else localStorage.removeItem('chat_guest_name');
+      // 重置会话数据(新登录/重连)
+      conversations = {}; unread = {}; privateConversations = {}; activePeer = '';
+      if (msg.current_room) {
+        currentRoom = msg.current_room;
+        currentRoomId = currentRoom.id;
+        updateMyRoomRole();
+        roomMuted = !!currentRoom.muted;
+        joinedRooms = [currentRoom];
+      } else {
+        currentRoomId = 'default';
+        joinedRooms = [{ id: 'default', name: '公共大厅', owner: '', is_private: false, has_password: false }];
+      }
+      ensureConv(roomConvKey(currentRoomId));
+      updateRoomTitle(); updateRoomMuteBanner(); updateRoomAdminBtn();
+      if (typeof msg.count === 'number') updateOnlineCount(msg.count);
+      adminBadge.classList.toggle('show', isAdmin);
+      adminBadge.textContent = isSuperAdmin ? '主管理员' : '管理员';
+      adminBtnOpen.classList.toggle('show', isAdmin);
+      roomsBtnOpen.classList.add('show');
+      muteBanner.classList.toggle('show', globalMuted);
+      if (logoutBtn) {
+        logoutBtn.style.display = 'inline-block';
+        logoutBtn.textContent = isRegistered ? '登出' : '切换';
+      }
+      // 注册用户与主管理员可修改密码
+      if (changePwdBtn) changePwdBtn.style.display = (isRegistered || isSuperAdmin) ? 'inline-block' : 'none';
+      adminManageSection.style.display = isSuperAdmin ? 'block' : 'none';
+      cleanResetRow.style.display = isSuperAdmin ? 'flex' : 'none';
+      renderSidebar();
+      refreshActionPanel();
+      safeSend({ type: 'list_rooms' });
+      safeSend({ type: 'joined_rooms' });
+      // 断线重连/刷新后恢复之前加入的房间(手机端网络波动等场景),避免房间"消失"并被打回大厅
+      var savedRids = getSavedJoinedRooms();
+      savedRids.forEach(function(rid) {
+        if (rid && rid !== currentRoomId) {
+          safeSend({ type: 'join_room', room_id: rid, password: '', silent: true });
+        }
+      });
+    } else if (msg.type === 'register_result') {
+      registerBtn.disabled = false; registerBtn.textContent = '注册并进入';
+      if (msg.ok) {
+        if (msg.token) localStorage.setItem('chat_token', msg.token);
+        if (msg.name) localStorage.setItem('chat_username', msg.name);
+        localStorage.removeItem('chat_guest_name');
+        regErr.textContent = '';
+      } else {
+        regErr.textContent = msg.error || '注册失败';
+      }
+    } else if (msg.type === 'login_result') {
+      loginBtn.disabled = false; loginBtn.textContent = '登录';
+      if (msg.ok) {
+        if (msg.token) localStorage.setItem('chat_token', msg.token);
+        if (msg.name) localStorage.setItem('chat_username', msg.name);
+        localStorage.removeItem('chat_guest_name');
+        loginErr.textContent = '';
+      } else {
+        loginErr.textContent = msg.error || '登录失败';
+        if (msg.error && msg.error.indexOf('过期') >= 0) {
+          localStorage.removeItem('chat_token');
+          localStorage.removeItem('chat_username');
+          localStorage.removeItem('chat_guest_name');
+        }
+      }
+    } else if (msg.type === 'change_pwd_result') {
+      cpSubmit.disabled = false; cpSubmit.textContent = '确认修改';
+      if (msg.ok) {
+        alert('密码修改成功,请重新登录');
+        // 改密后服务端已使所有 session 失效,清理本地 token 并返回登录界面
+        localStorage.removeItem('chat_token');
+        localStorage.removeItem('chat_username');
+        localStorage.removeItem('chat_guest_name');
+        changePwdModal.classList.remove('show');
+        if (ws) { ws.close(); ws = null; }
+        joined = false; myName = ''; isRegistered = false; isAdmin = false; isSuperAdmin = false;
+        if (logoutBtn) logoutBtn.style.display = 'none';
+        if (changePwdBtn) changePwdBtn.style.display = 'none';
+        overlay.style.display = 'flex';
+        nameInput.value = '';
+        enterBtn.disabled = true; enterBtn.textContent = '进入';
+        nameErr.textContent = '';
+        switchAuthTab('login');
+      } else {
+        cpErr.textContent = msg.error || '修改失败';
+      }
+    } else if (msg.type === 'force_logout') {
+      joined = false;
+      localStorage.removeItem('chat_token');
+      localStorage.removeItem('chat_username');
+      localStorage.removeItem('chat_guest_name');
+      localStorage.removeItem('chat_joined_rooms'); // 被顶下线,清空已保存房间
+      alert(msg.reason || '你的昵称已被注册用户使用,请登录或换一个昵称');
+      if (ws) { ws.close(); ws = null; }
+      overlay.style.display = 'flex';
+      nameInput.value = '';
+      enterBtn.disabled = true; enterBtn.textContent = '进入';
+      nameErr.textContent = msg.reason || '昵称已被注册用户使用';
+      switchAuthTab('login');
+    } else if (msg.type === 'logged_out') {
+      joined = false;
+      myName = '';
+      closeActionPanel();
+      localStorage.removeItem('chat_joined_rooms'); // 登出,清空已保存房间
+      if (ws) { ws.close(); ws = null; }
+      overlay.style.display = 'flex';
+      nameInput.value = '';
+      enterBtn.disabled = true; enterBtn.textContent = '进入';
+      nameErr.textContent = '';
+      isRegistered = false;
+      if (logoutBtn) logoutBtn.style.display = 'none';
+      if (changePwdBtn) changePwdBtn.style.display = 'none';
+      switchAuthTab('guest');
+    } else if (msg.type === 'online') {
+      // 更新侧边栏该房间在线人数
+      if (msg.room_id) {
+        var or = joinedRooms.find(function(x) { return x.id === msg.room_id; });
+        if (or) { or.online = (or.online || 0) + 1; renderSidebar(); }
+      }
+      if (msg.room_id && msg.room_id !== currentRoomId) return;
+      updateOnlineCount(msg.count);
+      if (msg.name !== myName && activePeer === '') renderSystem(msg.name + ' 加入了房间');
+    } else if (msg.type === 'offline') {
+      if (msg.room_id) {
+        var offr = joinedRooms.find(function(x) { return x.id === msg.room_id; });
+        if (offr) { offr.online = Math.max(0, (offr.online || 0) - 1); renderSidebar(); }
+      }
+      if (msg.room_id && msg.room_id !== currentRoomId) return;
+      updateOnlineCount(msg.count);
+      if (activePeer === '') renderSystem(msg.name + ' 离开了房间');
+    } else if (msg.type === 'user_list') {
+      if (msg.room_id && msg.room_id !== currentRoomId) return;
+      renderUserList(msg.users);
+    } else if (msg.type === 'room_user_list') {
+      // 更新侧边栏在线人数
+      var rulr = joinedRooms.find(function(x) { return x.id === msg.room_id; });
+      if (rulr) { rulr.online = msg.count; renderSidebar(); }
+      if (msg.room_id === currentRoomId) renderUserList(msg.users);
+    } else if (msg.type === 'private_conversations') {
+      privateConversations = {};
+      (msg.conversations || []).forEach(function(item) {
+        if (!item || !item.peer || item.peer === myName) return;
+        privateConversations[item.peer] = item;
+        var itemKey = privateConvKey(item.peer);
+        unread[itemKey] = Number(item.unread || 0);
+      });
+      renderSidebar();
+    } else if (msg.type === 'private_chat') {
+      var peer = msg.from === myName ? msg.to : msg.from;
+      var pk = privateConvKey(peer);
+      ensureConv(pk);
+      conversations[pk].push(msg);
+      privateConversations[peer] = privateConversations[peer] || { peer: peer };
+      privateConversations[peer].last_time = msg.time;
+      privateConversations[peer].last_content = msg.content || (msg.file ? msg.file.name : '[文件]');
+      privateConversations[peer].last_content_type = msg.content_type || 'text';
+      privateConversations[peer].last_sender = msg.from;
+      if (activePeer === peer) {
+        unread[pk] = 0;
+        privateConversations[peer].unread = 0;
+        renderPrivateMessage(msg);
+        safeSend({ type: 'mark_private_read', peer: peer });
+      } else if (msg.from !== myName) {
+        unread[pk] = (unread[pk] || 0) + 1;
+        privateConversations[peer].unread = unread[pk];
+      }
+      renderSidebar();
+    } else if (msg.type === 'private_history') {
+      var phk = privateConvKey(msg.peer);
+      conversations[phk] = msg.data || []; ensureConv(phk);
+      unread[phk] = 0;
+      if (privateConversations[msg.peer]) privateConversations[msg.peer].unread = 0;
+      if (activePeer === msg.peer) renderConversation();
+      renderSidebar();
+    } else if (msg.type === 'private_notice') {
+      if (activePeer === msg.to) renderSystem(msg.text);
+    } else if (msg.type === 'revoke') {
+      var revKey = msg.scope === 'group' ? roomConvKey(msg.room_id || currentRoomId) : privateConvKey(msg.peer);
+      if (conversations[revKey]) {
+        var found = conversations[revKey].find(function(x) { return String(x.id) === String(msg.id); });
+        if (found) { found.revoked = 1; found.content = ''; found.file = null; found.revoked_by = msg.by; if (activeConvKey() === revKey) renderConversation(); }
+      }
+    } else if (msg.type === 'notice') {
+      renderSystem(msg.text);
+      // 管理后台打开时,notice 可能是操作结果,刷新房间/用户列表
+      if (adminPanel && adminPanel.classList.contains('show')) {
+        if (msg.text && (msg.text.indexOf('踢下线') >= 0 || msg.text.indexOf('删除') >= 0 || msg.text.indexOf('管理员') >= 0)) {
+          safeSend({ type: 'admin_list_rooms' });
+          safeSend({ type: 'admin_list_users' });
+        }
+      }
+    } else if (msg.type === 'rate_limited') {
+      // 限流提示:短暂闪烁输入框边框 + 系统消息
+      renderSystem(msg.reason || '发送过于频繁');
+      inputEl.style.borderColor = 'var(--danger)';
+      setTimeout(function() { inputEl.style.borderColor = ''; }, 1500);
+    } else if (msg.type === 'server_full') {
+      joined = false;
+      alert(msg.text || '服务器连接数已满');
+      if (ws) { ws.close(); ws = null; }
+      overlay.style.display = 'flex';
+      nameErr.textContent = msg.text || '服务器满载';
+    } else if (msg.type === 'name_error') {
+      myName = '';
+      enterBtn.disabled = false;
+      enterBtn.textContent = '进入';
+      nameErr.textContent = msg.text;
+      alert(msg.text);
+      if (ws) { ws.close(); ws = null; }
+      overlay.style.display = 'flex';
+    } else if (msg.type === 'mute_changed') {
+      globalMuted = !!msg.muted;
+      muteBanner.classList.toggle('show', globalMuted);
+      muteSwitch.classList.toggle('on', globalMuted);
+      muteLabel.textContent = globalMuted ? '已开启' : '关闭';
+      renderSystem(msg.muted ? ('管理员 ' + msg.by + ' 开启了全员禁言') : ('管理员 ' + msg.by + ' 关闭了全员禁言'));
+    } else if (msg.type === 'kicked') {
+      joined = false;
+      myName = '';
+      var txt = msg.reason || (msg.duration_minutes > 0 ? ('你已被管理员强制下线，' + msg.duration_minutes + ' 分钟后可重新进入') : '你已被管理员强制下线（永久禁止进入）');
+      alert(txt);
+      if (ws) ws.close();
+      overlay.style.display = 'flex';
+      nameInput.value = '';
+      enterBtn.disabled = true; enterBtn.textContent = '进入';
+      nameErr.textContent = txt;
+      isRegistered = false;
+      if (logoutBtn) logoutBtn.style.display = 'none';
+      if (changePwdBtn) changePwdBtn.style.display = 'none';
+      switchAuthTab('guest');
+    } else if (msg.type === 'admin_private_pairs') {
+      renderPrivatePairs(msg.data || []);
+    } else if (msg.type === 'admin_private_history') {
+      showAdminPrivateHistory(msg.a, msg.b, msg.data || []);
+    } else if (msg.type === 'admin_room_list') {
+      adminRoomsData = msg.data || [];
+      renderAdminRoomsList();
+    } else if (msg.type === 'admin_user_list') {
+      adminUsersData = msg.data || [];
+      renderAdminUsersList();
+    } else if (msg.type === 'admin_upload_list') {
+      adminUploadsData = msg.data || [];
+      renderAdminUploadsList();
+    } else if (msg.type === 'admin_stats') {
+      renderCleanStats(msg.data);
+    } else if (msg.type === 'admin_clean_config') {
+      renderCleanConfig(msg.config);
+    } else if (msg.type === 'admin_clean_result') {
+      var r = msg.result || {};
+      var text = '';
+      if (msg.action === 'old_messages') {
+        text = '✅ 清理完成:删除 ' + r.deleted_messages + ' 条消息,' + r.deleted_files + ' 个孤儿文件(' + r.days + ' 天前)';
+      } else if (msg.action === 'revoked_orphans') {
+        text = '✅ 清理完成:删除 ' + r.deleted_messages + ' 条撤回消息,' + r.deleted_files + ' 个孤儿文件';
+      } else if (msg.action === 'orphan_rooms') {
+        text = '✅ 清理完成:删除 ' + r.deleted_rooms + ' 个孤儿房间,' + r.deleted_messages + ' 条关联消息';
+        if (r.rooms && r.rooms.length > 0) text += '\n已删房间: ' + r.rooms.join(', ');
+      } else if (msg.action === 'reset') {
+        text = '✅ 数据库已完全重置:删除所有消息和房间(保留公共大厅),' + r.deleted_files + ' 个文件';
+      }
+      showCleanResult(text, 'success');
+      if (msg.stats) renderCleanStats(msg.stats);
+    }
+    // ---------- 定时清理完成通知(仅管理员收到) ----------
+    else if (msg.type === 'admin_auto_clean_done') {
+      var s = msg.summary || {};
+      var parts = [];
+      if (s.revoked) parts.push('撤回消息 ' + (s.revoked.deleted_messages || 0) + ' 条,孤儿文件 ' + (s.revoked.deleted_files || 0) + ' 个');
+      if (s.old_messages) parts.push('旧消息 ' + (s.old_messages.deleted_messages || 0) + ' 条,关联文件 ' + (s.old_messages.deleted_files || 0) + ' 个');
+      var src = s.source === 'auto' ? '定时' : (s.by ? s.by + ' 手动' : '手动');
+      var txt = '♻️ ' + src + '清理完成:' + (parts.length ? parts.join('; ') : '无变化');
+      renderSystem(txt);
+      // 管理后台打开时刷新统计
+      if (adminPanel && adminPanel.classList.contains('show')) refreshStats();
+    }
+    // ---------- 历史已失效:重新拉取当前会话历史 ----------
+    else if (msg.type === 'history_invalidated') {
+      // msg.room_ids 为空数组表示所有房间都受影响;msg.private_peers 为空数组表示所有私聊都受影响
+      var affectedRooms = msg.room_ids || [];
+      var affectedPeers = msg.private_peers || [];
+      // 当前正在查看房间群聊
+      if (activePeer === '') {
+        var needRefresh = affectedRooms.length === 0 || affectedRooms.indexOf(currentRoomId) >= 0;
+        if (needRefresh && joined) {
+          // 清空当前会话缓存并重新拉取
+          var rk = roomConvKey(currentRoomId);
+          if (conversations[rk]) conversations[rk] = [];
+          safeSend({ type: 'get_room_history', room_id: currentRoomId });
+          renderSystem('♻️ 历史已更新(管理员清理了过期内容)');
+        }
+      } else {
+        // 当前正在查看私聊
+        var needRefreshP = affectedPeers.length === 0 || affectedPeers.indexOf(activePeer) >= 0;
+        if (needRefreshP && joined) {
+          var pk = privateConvKey(activePeer);
+          if (conversations[pk]) conversations[pk] = [];
+          safeSend({ type: 'get_private_history', peer: activePeer });
+          renderSystem('♻️ 历史已更新(管理员清理了过期内容)');
+        }
+      }
+    }
+    // ---------- 管理员管理消息 ----------
+    else if (msg.type === 'admin_list') {
+      renderAdminList(msg.data || []);
+    } else if (msg.type === 'admin_added') {
+      renderSystem('已添加子管理员: ' + msg.admin.name);
+      newAdminName.value = '';
+      safeSend({ type: 'admin_list_admins' });
+      safeSend({ type: 'admin_list_users' }); // 刷新用户列表(管理员标签变化)
+    } else if (msg.type === 'admin_removed') {
+      renderSystem('已删除子管理员: ' + msg.name);
+      safeSend({ type: 'admin_list_admins' });
+      safeSend({ type: 'admin_list_users' });
+    }
+    // ---------- 房间相关消息 ----------
+    else if (msg.type === 'room_list') {
+      rooms = msg.data || [];
+      // 同步已加入房间的 online 信息
+      rooms.forEach(function(r) {
+        var jr = joinedRooms.find(function(x) { return x.id === r.id; });
+        if (jr) jr.online = r.online;
+      });
+      renderSidebar();
+      renderRoomsList();
+    } else if (msg.type === 'room_created') {
+      renderSystem('房间 "' + msg.room.name + '" 创建成功');
+      var createdPwd = crPassword.value;
+      createRoomModal.classList.remove('show');
+      crName.value = ''; crPassword.value = ''; crPrivate.checked = false; crIdle.value = '0'; crIdleWrap.style.display = ''; crErr.textContent = '';
+      safeSend({ type: 'list_rooms' });
+      safeSend({ type: 'join_room', room_id: msg.room.id, password: createdPwd });
+    } else if (msg.type === 'room_joined') {
+      currentRoom = msg.room;
+      currentRoomId = msg.room.id;
+      updateMyRoomRole();
+      roomMuted = !!msg.room_muted;
+      saveJoinedRoom(msg.room.id);
+      var rjk = roomConvKey(msg.room.id);
+      if (msg.already_joined) { ensureConv(rjk); }
+      else { conversations[rjk] = msg.history || []; }
+      // silent 恢复(重连/重登):保留之前未读;主动加入:历史已读清零
+      if (!msg.silent) unread[rjk] = 0;
+      // 加入/更新 joinedRooms
+      var jrIdx = joinedRooms.findIndex(function(x) { return x.id === msg.room.id; });
+      if (jrIdx >= 0) joinedRooms[jrIdx] = msg.room; else joinedRooms.push(msg.room);
+      activePeer = '';
+      updateRoomTitle(); updateRoomMuteBanner(); updateRoomAdminBtn();
+      renderSidebar();
+      renderConversation();
+      roomsPanel.classList.remove('show');
+      joinRoomModal.classList.remove('show');
+      safeSend({ type: 'list_rooms' });
+    } else if (msg.type === 'room_left') {
+      var leftKey = roomConvKey(msg.room_id);
+      joinedRooms = joinedRooms.filter(function(x) { return x.id !== msg.room_id; });
+      delete conversations[leftKey]; delete unread[leftKey];
+      removeSavedJoinedRoom(msg.room_id);
+      // 如果离开的是当前房间,切回 default
+      if (msg.room_id === currentRoomId) {
+        currentRoomId = 'default';
+        var defR = joinedRooms.find(function(x) { return x.id === 'default'; });
+        if (defR) {
+          currentRoom = defR;
+          updateMyRoomRole();
+          roomMuted = !!defR.muted;
+          updateRoomTitle(); updateRoomMuteBanner(); updateRoomAdminBtn();
+        }
+        if (activePeer === '') renderConversation();
+      }
+      renderSidebar();
+    } else if (msg.type === 'room_error') {
+      var errText = msg.text || '房间操作失败';
+      if (joinRoomModal.classList.contains('show')) jrErr.textContent = errText;
+      else if (createRoomModal.classList.contains('show')) crErr.textContent = errText;
+      else renderSystem(errText);
+    } else if (msg.type === 'room_updated') {
+      // 更新 joinedRooms 中的房间信息
+      var upIdx = joinedRooms.findIndex(function(x) { return x.id === msg.room_id; });
+      if (upIdx >= 0 && msg.room) joinedRooms[upIdx] = msg.room;
+      if (msg.room_id === currentRoomId && msg.room) {
+        currentRoom = msg.room;
+        updateMyRoomRole();
+        roomMuted = !!currentRoom.muted;
+        updateRoomTitle(); updateRoomMuteBanner(); updateRoomAdminBtn();
+      }
+      renderSystem('房间信息已更新');
+      roomAdminPanel.classList.remove('show');
+      renderSidebar();
+      safeSend({ type: 'list_rooms' });
+    } else if (msg.type === 'room_deleted') {
+      var delKey = roomConvKey(msg.room_id);
+      joinedRooms = joinedRooms.filter(function(x) { return x.id !== msg.room_id; });
+      delete conversations[delKey]; delete unread[delKey];
+      removeSavedJoinedRoom(msg.room_id);
+      var idleDel = msg.reason === 'idle';
+      if (msg.room_id === currentRoomId) {
+        currentRoomId = 'default';
+        var defR2 = joinedRooms.find(function(x) { return x.id === 'default'; });
+        if (defR2) {
+          currentRoom = defR2;
+          updateMyRoomRole();
+          roomMuted = !!defR2.muted;
+          updateRoomTitle(); updateRoomMuteBanner(); updateRoomAdminBtn();
+        }
+        if (activePeer === '') renderConversation();
+        renderSystem(idleDel ? '房间因长时间无人使用已被自动清理,已切换到默认房间' : '房间已被删除,已切换到默认房间');
+      } else {
+        renderSystem(idleDel ? '房间因长时间无人使用已被自动清理' : '一个房间已被删除');
+      }
+      renderSidebar();
+      safeSend({ type: 'list_rooms' });
+      // 如果管理后台打开,刷新房间列表
+      if (adminPanel.classList.contains('show')) safeSend({ type: 'admin_list_rooms' });
+    } else if (msg.type === 'owner_transferred') {
+      var otIdx = joinedRooms.findIndex(function(x) { return x.id === msg.room_id; });
+      if (otIdx >= 0) joinedRooms[otIdx].owner = msg.new_owner;
+      if (msg.room_id === currentRoomId) {
+        currentRoom.owner = msg.new_owner;
+        updateMyRoomRole();
+        updateRoomAdminBtn();
+        renderSystem('房主已转让给 ' + msg.new_owner);
+      }
+      renderSidebar();
+      safeSend({ type: 'list_rooms' });
+    } else if (msg.type === 'joined_rooms') {
+      var newList = msg.data || [];
+      var newIds = newList.map(function(x) { return x.id; });
+      // 移除不再加入的房间
+      joinedRooms = joinedRooms.filter(function(x) { return newIds.indexOf(x.id) >= 0; });
+      // 添加/更新房间
+      newList.forEach(function(r) {
+        var idx = joinedRooms.findIndex(function(x) { return x.id === r.id; });
+        if (idx >= 0) joinedRooms[idx] = r; else joinedRooms.push(r);
+        // 应用服务端持久化的未读数(刷新/换设备后恢复)
+        unread[roomConvKey(r.id)] = Number(r.unread || 0);
+        // 服务端返回的持久化房间(重登/换设备恢复):当前未在会话中则静默恢复加入
+        if (idx < 0 && r.id !== 'default') {
+          safeSend({ type: 'join_room', room_id: r.id, password: '', silent: true });
+        }
+      });
+      // 确保 default 存在
+      if (!joinedRooms.find(function(x) { return x.id === 'default'; })) {
+        joinedRooms.unshift({ id: 'default', name: '公共大厅', owner: '', is_private: false, has_password: false });
+      }
+      renderSidebar();
+    } else if (msg.type === 'room_kicked') {
+      if (msg.room_id === currentRoomId) {
+        var rkt = msg.duration > 0 ? ('你已被踢出房间,' + msg.duration + ' 秒后可重新加入') : '你已被踢出房间';
+        renderSystem(rkt);
+      }
+    } else if (msg.type === 'room_mute_changed') {
+      var rmIdx = joinedRooms.findIndex(function(x) { return x.id === msg.room_id; });
+      if (rmIdx >= 0) joinedRooms[rmIdx].muted = !!msg.muted;
+      if (msg.room_id === currentRoomId) {
+        roomMuted = !!msg.muted;
+        updateRoomMuteBanner();
+        renderSystem(msg.muted ? ('房主 ' + msg.by + ' 开启了房间全员禁言') : ('房主 ' + msg.by + ' 关闭了房间全员禁言'));
+      }
+    } else if (msg.type === 'room_managers_changed') {
+      var mngIdx = joinedRooms.findIndex(function(x) { return x.id === msg.room_id; });
+      if (mngIdx >= 0 && Array.isArray(msg.managers)) joinedRooms[mngIdx].managers = msg.managers;
+      if (msg.room_id === currentRoomId && currentRoom) {
+        if (Array.isArray(msg.managers)) currentRoom.managers = msg.managers;
+        updateMyRoomRole();
+        updateRoomTitle(); updateRoomAdminBtn();
+        renderRoomManagers();
+        if (rmManagerAddRow) rmManagerAddRow.style.display = (isOwner || isAdmin) ? 'flex' : 'none';
+        renderUserList(currentUsers);
+        var who = msg.name || '该用户';
+        renderSystem(msg.on ? (msg.by + ' 已将 ' + who + ' 设为房间管理') : (msg.by + ' 取消了 ' + who + ' 的房间管理'));
+      }
+      renderSidebar();
+    }
+  }
+
+  function sendSetName(name) {
+    var payload = { type: 'set_name', name: name };
+    if (adminPwdInput.value) payload.password = adminPwdInput.value;
+    safeSend(payload);
+  }
+
+  // ---------- 标签页切换 ----------
+  var currentTab = 'guest';
+  function switchAuthTab(tab) {
+    currentTab = tab;
+    document.querySelectorAll('.auth-tab').forEach(function(t) {
+      t.classList.toggle('active', t.dataset.tab === tab);
+    });
+    document.getElementById('panel-guest').style.display = tab === 'guest' ? 'block' : 'none';
+    document.getElementById('panel-login').style.display = tab === 'login' ? 'block' : 'none';
+    document.getElementById('panel-register').style.display = tab === 'register' ? 'block' : 'none';
+    nameErr.textContent = ''; loginErr.textContent = ''; regErr.textContent = '';
+    if (tab === 'guest') autoFocus(nameInput);
+    else if (tab === 'login') autoFocus(loginUsername);
+    else if (tab === 'register') autoFocus(regUsername);
+  }
+  document.querySelectorAll('.auth-tab').forEach(function(t) {
+    t.addEventListener('click', function() { switchAuthTab(t.dataset.tab); });
+  });
+
+  // ---------- 等待 WebSocket 连接 ----------
+  function waitConnected(callback) {
+    var tryCount = 0;
+    function attempt() {
+      if (ws && ws.readyState === WebSocket.OPEN) { if (callback) callback(); return; }
+      // 连接已丢失或从未建立时,主动重建连接,避免一直卡在"连接中/登录中"
+      if (!ws || ws.readyState === WebSocket.CLOSED) {
+        if (tryCount++ >= 5) return; // 多次重建仍失败则放弃(按钮恢复,用户可重试)
+        reconnectDelay = 1000;
+        connect();
+      }
+      setTimeout(attempt, 300);
+    }
+    attempt();
+  }
+
+  // ---------- 昵称进入(临时用户/主管理员) ----------
+  function tryEnter() {
+    var name = nameInput.value.trim();
+    if (!name) { nameErr.textContent = '昵称不能为空'; return; }
+    if (name.length > 20) { nameErr.textContent = '昵称最多 20 字符'; return; }
+    nameErr.textContent = '';
+    myName = name;
+    enterBtn.disabled = true; enterBtn.textContent = '连接中…';
+    waitConnected(function() { sendSetName(myName); });
+  }
+  nameInput.addEventListener('input', function() {
+    enterBtn.disabled = nameInput.value.trim().length === 0;
+    nameErr.textContent = '';
+  });
+  nameInput.addEventListener('keydown', function(e) { if (e.key === 'Enter') tryEnter(); });
+  enterBtn.addEventListener('click', tryEnter);
+
+  // ---------- 账号登录 ----------
+  function tryLogin() {
+    var username = loginUsername.value.trim();
+    var password = loginPassword.value;
+    if (!username) { loginErr.textContent = '请输入用户名'; return; }
+    if (!password) { loginErr.textContent = '请输入密码'; return; }
+    loginErr.textContent = '';
+    loginBtn.disabled = true; loginBtn.textContent = '登录中…';
+    waitConnected(function() {
+      safeSend({
+        type: 'login', username: username, password: password,
+        remember: loginRemember.checked
+      });
+    });
+  }
+  function updateLoginBtn() {
+    loginBtn.disabled = !(loginUsername.value.trim() && loginPassword.value);
+  }
+  loginUsername.addEventListener('input', function() { loginErr.textContent = ''; updateLoginBtn(); });
+  loginPassword.addEventListener('input', function() { loginErr.textContent = ''; updateLoginBtn(); });
+  loginUsername.addEventListener('keydown', function(e) { if (e.key === 'Enter') { e.preventDefault(); loginPassword.focus(); } });
+  loginPassword.addEventListener('keydown', function(e) { if (e.key === 'Enter') { e.preventDefault(); tryLogin(); } });
+  loginBtn.addEventListener('click', tryLogin);
+
+  // ---------- 注册 ----------
+  function tryRegister() {
+    var username = regUsername.value.trim();
+    var nickname = regNickname.value.trim();
+    var password = regPassword.value;
+    var password2 = regPassword2.value;
+    if (!username) { regErr.textContent = '请输入用户名'; return; }
+    if (!nickname) { regErr.textContent = '请输入显示昵称'; return; }
+    if (nickname.length > 20) { regErr.textContent = '昵称最多 20 字符'; return; }
+    if (password.length < 6) { regErr.textContent = '密码至少 6 位'; return; }
+    if (password.length > 50) { regErr.textContent = '密码最多 50 位'; return; }
+    if (password !== password2) { regErr.textContent = '两次密码不一致'; return; }
+    regErr.textContent = '';
+    registerBtn.disabled = true; registerBtn.textContent = '注册中…';
+    waitConnected(function() {
+      safeSend({
+        type: 'register', username: username, nickname: nickname,
+        password: password, remember: regRemember.checked
+      });
+    });
+  }
+  function updateRegisterBtn() {
+    registerBtn.disabled = !(regUsername.value.trim() && regNickname.value.trim() && regPassword.value && regPassword2.value);
+  }
+  regUsername.addEventListener('input', function() { regErr.textContent = ''; updateRegisterBtn(); });
+  regNickname.addEventListener('input', function() { regErr.textContent = ''; updateRegisterBtn(); });
+  regPassword.addEventListener('input', function() { regErr.textContent = ''; updateRegisterBtn(); });
+  regPassword2.addEventListener('input', function() { regErr.textContent = ''; updateRegisterBtn(); });
+  regUsername.addEventListener('keydown', function(e) { if (e.key === 'Enter') { e.preventDefault(); regNickname.focus(); } });
+  regNickname.addEventListener('keydown', function(e) { if (e.key === 'Enter') { e.preventDefault(); regPassword.focus(); } });
+  regPassword.addEventListener('keydown', function(e) { if (e.key === 'Enter') { e.preventDefault(); regPassword2.focus(); } });
+  regPassword2.addEventListener('keydown', function(e) { if (e.key === 'Enter') { e.preventDefault(); tryRegister(); } });
+  registerBtn.addEventListener('click', tryRegister);
+
+  // ---------- 登出/切换用户 ----------
+  function logout() {
+    var isReg = !!localStorage.getItem('chat_token');
+    var tip = isReg ? '确定要登出当前账号吗?登出后需要重新登录。' : '确定要切换用户吗?将返回登录界面。';
+    if (!confirm(tip)) return false;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      safeSend({ type: 'logout' });
+    }
+    // 仅注册用户清除本地 token(临时用户本就没有)
+    if (isReg) {
+      localStorage.removeItem('chat_token');
+      localStorage.removeItem('chat_username');
+    }
+    localStorage.removeItem('chat_guest_name');
+    return true;
+  }
+  logoutBtn.addEventListener('click', logout);
+
+  // ---------- 修改密码 ----------
+  function openChangePwdModal() {
+    cpOld.value = ''; cpNew.value = ''; cpNew2.value = '';
+    cpErr.textContent = '';
+    cpSubmit.disabled = false; cpSubmit.textContent = '确认修改';
+    changePwdModal.classList.add('show');
+    autoFocus(cpOld);
+  }
+  function closeChangePwdModal() {
+    changePwdModal.classList.remove('show');
+  }
+  function tryChangePwd() {
+    var oldPwd = cpOld.value;
+    var newPwd = cpNew.value;
+    var newPwd2 = cpNew2.value;
+    if (!oldPwd) { cpErr.textContent = '请输入当前密码'; return; }
+    if (newPwd.length < 6 || newPwd.length > 50) { cpErr.textContent = '新密码需为 6-50 位'; return; }
+    if (newPwd !== newPwd2) { cpErr.textContent = '两次输入的新密码不一致'; return; }
+    if (newPwd === oldPwd) { cpErr.textContent = '新密码不能与当前密码相同'; return; }
+    cpErr.textContent = '';
+    cpSubmit.disabled = true; cpSubmit.textContent = '提交中…';
+    safeSend({ type: 'change_password', old_password: oldPwd, new_password: newPwd });
+  }
+  if (changePwdBtn) {
+    changePwdBtn.addEventListener('click', openChangePwdModal);
+  }
+  if (cpClose) cpClose.addEventListener('click', closeChangePwdModal);
+  if (changePwdModal) changePwdModal.addEventListener('click', function(e) { if (e.target === changePwdModal) closeChangePwdModal(); });
+  if (cpSubmit) cpSubmit.addEventListener('click', tryChangePwd);
+  var cpInputs = [cpOld, cpNew, cpNew2];
+  for (var i = 0; i < cpInputs.length; i++) {
+    (function(input) {
+      input.addEventListener('input', function() { cpErr.textContent = ''; });
+    })(cpInputs[i]);
+  }
+  cpNew.addEventListener('keydown', function(e) { if (e.key === 'Enter') { e.preventDefault(); cpNew2.focus(); } });
+  cpNew2.addEventListener('keydown', function(e) { if (e.key === 'Enter') { e.preventDefault(); tryChangePwd(); } });
+
+  // ---------- 发送 ----------
+  function trySend() {
+    var content = inputEl.value;
+    if (!content.trim()) return;
+    var quoteId = quotingMsg ? quotingMsg.id : null;
+    if (activePeer === '') {
+      safeSend({ type: 'chat', room_id: currentRoomId, content: content, content_type: 'text', quote_id: quoteId });
+    } else {
+      safeSend({ type: 'private_chat', to: activePeer, content: content, content_type: 'text', quote_id: quoteId });
+    }
+    inputEl.value = ''; clearQuote(); inputEl.focus();
+  }
+  sendBtn.addEventListener('click', trySend);
+  inputEl.addEventListener('keydown', function(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); trySend(); } });
+
+  // ---------- 侧边栏"添加房间"按钮 ----------
+  sidebarAddRoomBtn.addEventListener('click', function() {
+    crName.value = ''; crPassword.value = ''; crPrivate.checked = false; crIdle.value = '0'; crIdleWrap.style.display = ''; crErr.textContent = '';
+    createRoomModal.classList.add('show');
+    autoFocus(crName);
+  });
+  // 私密房间不支持空闲自动清理,勾选时隐藏该选项
+  crPrivate.addEventListener('change', function() {
+    if (crPrivate.checked) {
+      crIdleWrap.style.display = 'none';
+      crIdle.value = '0';
+    } else {
+      crIdleWrap.style.display = '';
+    }
+  });
+
+  // ---------- 在线用户面板 ----------
+  function toggleUserPanel(force) {
+    var willOpen = typeof force === 'boolean' ? force : userPanel.classList.contains('hidden');
+    userPanel.classList.toggle('hidden', !willOpen);
+    onlineCountEl.classList.toggle('open', willOpen);
+    if (willOpen) { userSearch.value = ''; userSearchKw = ''; renderUserList(currentUsers); autoFocus(userSearch); }
+  }
+  onlineCountEl.addEventListener('click', function(e) { e.stopPropagation(); toggleUserPanel(); });
+  document.addEventListener('click', function(e) {
+    if (!userPanel.classList.contains('hidden') && !userPanel.contains(e.target) && e.target !== onlineCountEl) toggleUserPanel(false);
+  });
+  // 用户搜索框:实时过滤,阻止冒泡避免关闭面板
+  userSearch.addEventListener('click', function(e) { e.stopPropagation(); });
+  userSearch.addEventListener('input', function() {
+    userSearchKw = userSearch.value;
+    renderUserList(currentUsers);
+  });
+
+  // ---------- 管理员面板 ----------
+  var adminRefreshTimer = null;
+  adminBtnOpen.addEventListener('click', function() {
+    adminPanel.classList.add('show');
+    muteSwitch.classList.toggle('on', globalMuted);
+    muteLabel.textContent = globalMuted ? '已开启' : '关闭';
+    safeSend({ type: 'admin_list_private_pairs' });
+    refreshStats();
+    refreshCleanConfig();
+    if (isSuperAdmin) safeSend({ type: 'admin_list_admins' });
+    safeSend({ type: 'admin_list_rooms' });
+    safeSend({ type: 'admin_list_users' });
+    safeSend({ type: 'admin_list_uploads' });
+    // 每 10 秒刷新房间/用户在线状态
+    if (adminRefreshTimer) clearInterval(adminRefreshTimer);
+    adminRefreshTimer = setInterval(function() {
+      if (adminPanel.classList.contains('show')) {
+        safeSend({ type: 'admin_list_rooms' });
+        safeSend({ type: 'admin_list_users' });
+      } else {
+        clearInterval(adminRefreshTimer); adminRefreshTimer = null;
+      }
+    }, 10000);
+  });
+  adminClose.addEventListener('click', function() {
+    adminPanel.classList.remove('show');
+    if (adminRefreshTimer) { clearInterval(adminRefreshTimer); adminRefreshTimer = null; }
+  });
+  adminPanel.addEventListener('click', function(e) {
+    if (e.target === adminPanel) {
+      adminPanel.classList.remove('show');
+      if (adminRefreshTimer) { clearInterval(adminRefreshTimer); adminRefreshTimer = null; }
+    }
+  });
+
+  // ---------- 管理后台:房间/用户搜索与管理 ----------
+  adminRoomsSearch.addEventListener('input', function() { renderAdminRoomsList(); });
+  adminUsersSearch.addEventListener('input', function() { renderAdminUsersList(); });
+  adminUploadsSearch.addEventListener('input', function() { renderAdminUploadsList(); });
+
+  function renderAdminRoomsList() {
+    var kw = (adminRoomsSearch.value || '').trim().toLowerCase();
+    var list = adminRoomsData.filter(function(r) {
+      if (!kw) return true;
+      return (r.name || '').toLowerCase().indexOf(kw) >= 0 || (r.owner || '').toLowerCase().indexOf(kw) >= 0;
+    });
+    adminRoomsListEl.innerHTML = '';
+    if (!list.length) {
+      adminRoomsListEl.innerHTML = '<li class="admin-list-empty">无匹配房间</li>';
+      return;
+    }
+    list.forEach(function(r) {
+      var li = document.createElement('li');
+      // 标签
+      var tags = '';
+      if (r.id === 'default') tags += '<span class="al-tag super">默认</span>';
+      if (r.is_private) tags += '<span class="al-tag private">私密</span>';
+      if (r.has_password) tags += '<span class="al-tag locked">🔒</span>';
+      if (r.idle_timeout_hours && !r.is_private) tags += '<span class="al-tag locked">⏱' + idleMinutes(r.idle_timeout_hours) + '分钟空闲清理</span>';
+      tags += '<span class="al-tag online">' + (r.online || 0) + '人</span>';
+      li.innerHTML = '<span class="al-name">' + escapeHtmlText(r.name || r.id) + '</span>' +
+        '<span class="al-meta">房主: ' + escapeHtmlText(r.owner || '无') + '</span>' + tags +
+        '<span class="al-actions"></span>';
+      var actions = li.querySelector('.al-actions');
+      // 删除按钮(默认房间不可删)
+      if (r.id !== 'default') {
+        var delBtn = document.createElement('button');
+        delBtn.className = 'del'; delBtn.textContent = '删除';
+        delBtn.addEventListener('click', function() {
+          if (confirm('确认删除房间 "' + (r.name || '') + '"?\n房间内所有成员将被移回公共大厅,历史消息将清除。')) {
+            safeSend({ type: 'admin_delete_room', room_id: r.id });
+          }
+        });
+        actions.appendChild(delBtn);
+      }
+      adminRoomsListEl.appendChild(li);
+    });
+  }
+
+  function renderAdminUsersList() {
+    var kw = (adminUsersSearch.value || '').trim().toLowerCase();
+    var list = adminUsersData.filter(function(u) {
+      if (!kw) return true;
+      return (u.nickname || '').toLowerCase().indexOf(kw) >= 0 || (u.username || '').toLowerCase().indexOf(kw) >= 0;
+    });
+    adminUsersListEl.innerHTML = '';
+    if (!list.length) {
+      adminUsersListEl.innerHTML = '<li class="admin-list-empty">无匹配用户</li>';
+      return;
+    }
+    list.forEach(function(u) {
+      var li = document.createElement('li');
+      // 标签
+      var tags = '';
+      if (u.is_super_admin) tags += '<span class="al-tag super">主管理员</span>';
+      else if (u.is_admin) tags += '<span class="al-tag admin">管理员</span>';
+      if (u.is_registered) tags += '<span class="al-tag online">注册</span>';
+      else tags += '<span class="al-tag guest">临时</span>';
+      tags += u.online ? '<span class="al-tag online">在线</span>' : '<span class="al-tag offline">离线</span>';
+      var meta = u.is_registered ? ('登录名: ' + (u.username || '-')) : '临时用户';
+      if (u.last_login) {
+        var d = new Date(u.last_login);
+        if (!isNaN(d.getTime())) meta += ' · 上次登录: ' + d.toLocaleDateString();
+      }
+      li.innerHTML = '<span class="al-name">' + escapeHtmlText(u.nickname || '') + '</span>' +
+        '<span class="al-meta">' + escapeHtmlText(meta) + '</span>' + tags +
+        '<span class="al-actions"></span>';
+      var actions = li.querySelector('.al-actions');
+      // 踢下线按钮(仅对在线且非自己/非主管理员)
+      if (u.online && u.nickname !== myName && !u.is_super_admin) {
+        var kickBtn2 = document.createElement('button');
+        kickBtn2.className = 'kick'; kickBtn2.textContent = '踢下线';
+        kickBtn2.addEventListener('click', function() {
+          var input = prompt('强制下线时长(分钟,可填小数,0=永久禁止进入,上限7天):', '10');
+          if (input === null) return;
+          var m = parseFloat(input);
+          if (isNaN(m) || m < 0) m = 0;
+          if (m > 10080) { alert('时长不能超过 7 天(10080 分钟)'); return; }
+          if (!confirm('确认将 ' + u.nickname + ' 强制下线' + (m > 0 ? '(' + m + ' 分钟)' : '(永久)') + '?')) return;
+          safeSend({ type: 'admin_kick', name: u.nickname, duration_minutes: m });
+        });
+        actions.appendChild(kickBtn2);
+      }
+      // 升级/降级管理员按钮(仅主管理员可见,且不能操作自己和主管理员)
+      if (isSuperAdmin && u.nickname !== myName && !u.is_super_admin && u.is_registered) {
+        if (!u.is_admin) {
+          var promoteBtn = document.createElement('button');
+          promoteBtn.className = 'promote'; promoteBtn.textContent = '升级管理员';
+          promoteBtn.addEventListener('click', function() {
+            if (!confirm('确认将 ' + u.nickname + ' (' + u.username + ') 升级为管理员?')) return;
+            safeSend({ type: 'admin_add_admin', username: u.username });
+          });
+          actions.appendChild(promoteBtn);
+        } else {
+          var demoteBtn = document.createElement('button');
+          demoteBtn.className = 'kick'; demoteBtn.textContent = '撤销管理员';
+          demoteBtn.addEventListener('click', function() {
+            if (!confirm('确认撤销 ' + u.nickname + ' 的管理员权限?')) return;
+            safeSend({ type: 'admin_remove_admin', username: u.username });
+          });
+          actions.appendChild(demoteBtn);
+        }
+      }
+      adminUsersListEl.appendChild(li);
+    });
+  }
+
+  // 渲染上传记录(可追溯)
+  function renderAdminUploadsList() {
+    if (!adminUploadsListEl) return;
+    var kw = (adminUploadsSearch.value || '').trim().toLowerCase();
+    var list = adminUploadsData.filter(function(u) {
+      if (!kw) return true;
+      return (u.uploader || '').toLowerCase().indexOf(kw) >= 0 ||
+             (u.ip || '').toLowerCase().indexOf(kw) >= 0 ||
+             (u.file_name || '').toLowerCase().indexOf(kw) >= 0;
+    });
+    adminUploadsListEl.innerHTML = '';
+    if (!list.length) {
+      adminUploadsListEl.innerHTML = '<li class="admin-list-empty">' + (kw ? '无匹配记录' : '暂无上传记录') + '</li>';
+      return;
+    }
+    list.forEach(function(u) {
+      var li = document.createElement('li');
+      var tags = '<span class="al-tag online">' + (u.is_image ? '图片' : '文件') + '</span>';
+      if (u.user_id) tags += '<span class="al-tag admin">注册用户</span>';
+      else tags += '<span class="al-tag guest">临时</span>';
+      var d = new Date(u.created_at);
+      var timeStr = isNaN(d.getTime()) ? '-' : (d.toLocaleDateString() + ' ' + d.toLocaleTimeString());
+      var sizeStr = u.size ? formatSize(u.size) : '-';
+      var meta = '上传者: ' + (u.uploader || '-') + ' · IP: ' + (u.ip || '-') + ' · ' + sizeStr + ' · ' + timeStr;
+      if (u.room_id) meta += ' · 房间: ' + u.room_id;
+      li.innerHTML = '<span class="al-name">' + escapeHtmlText(u.file_name || '-') + '</span>' +
+        '<span class="al-meta">' + escapeHtmlText(meta) + '</span>' + tags;
+      adminUploadsListEl.appendChild(li);
+    });
+  }
+
+  muteSwitch.addEventListener('click', function() {
+    var newMuted = !globalMuted;
+    safeSend({ type: 'admin_mute', muted: newMuted });
+  });
+  kickBtn.addEventListener('click', function() {
+    var target = kickTarget.value;
+    if (!target) { alert('请选择用户'); return; }
+    var m = parseFloat(kickDuration.value);
+    if (isNaN(m) || m < 0) m = 0;
+    if (m > 10080) { alert('时长不能超过 7 天(10080 分钟)'); return; }
+    if (!confirm('确认将 ' + target + ' 强制下线' + (m > 0 ? '(' + m + ' 分钟)' : '(永久)') + '?')) return;
+    safeSend({ type: 'admin_kick', name: target, duration_minutes: m });
+  });
+
+  // ---------- 清理后台按钮事件 ----------
+  // 清理 N 天前的旧消息(confirm 二次确认)
+  cleanOldBtn.addEventListener('click', function() {
+    var days = parseInt(cleanDays.value, 10) || 30;
+    if (!confirm('确定要清理 ' + days + ' 天前的所有消息吗?此操作不可撤销。')) return;
+    safeSend({ type: 'admin_clean_old_messages', days: days });
+    showCleanResult('正在清理 ' + days + ' 天前的消息...', 'info');
+  });
+  // 清理已撤回消息 + 孤儿文件
+  cleanRevokedBtn.addEventListener('click', function() {
+    if (!confirm('确定要清理所有已撤回的消息记录和孤儿文件吗?此操作不可撤销。')) return;
+    safeSend({ type: 'admin_clean_revoked' });
+    showCleanResult('正在清理已撤回消息和孤儿文件...', 'info');
+  });
+  // 清理无房主的孤儿房间
+  cleanRoomsBtn.addEventListener('click', function() {
+    if (!confirm('确定要清理所有无房主的孤儿房间吗?这些房间内的成员会被移回公共大厅。')) return;
+    safeSend({ type: 'admin_clean_orphan_rooms' });
+    showCleanResult('正在清理孤儿房间...', 'info');
+  });
+  // 立即触发一次定时清理(等同定时任务立即执行)
+  cleanTriggerBtn.addEventListener('click', function() {
+    if (!confirm('确定要立即执行一次定时清理吗?\n(清理撤回消息 + 孤儿文件' + (cleanDays ? (',如配置启用则同步清理 ' + cleanDays.value + ' 天前旧消息') : '') + ')\n此操作不可撤销。')) return;
+    safeSend({ type: 'admin_trigger_auto_clean' });
+    showCleanResult('正在执行定时清理任务...', 'info');
+  });
+  // 完全重置数据库(prompt 要求输入"我确认重置")
+  cleanResetBtn.addEventListener('click', function() {
+    var confirm1 = prompt('⚠ 危险操作!这将删除所有消息、所有非默认房间、所有上传文件。\n\n输入 "我确认重置" 以继续:');
+    if (confirm1 !== '我确认重置') {
+      if (confirm1 !== null) showCleanResult('已取消重置', 'error');
+      return;
+    }
+    safeSend({ type: 'admin_reset_db', confirm: true });
+    showCleanResult('正在重置数据库...', 'info');
+  });
+
+  // ---------- 房间相关 ----------
+  // 更新标题为当前房间名
+  function updateRoomTitle() {
+    var name = currentRoom ? currentRoom.name : '聊天室';
+    roomTitle.textContent = name;
+  }
+  // 更新房间禁言横幅(管理员可发言,不显示)
+  function updateRoomMuteBanner() {
+    roomMuteBanner.classList.toggle('show', roomMuted && !isAdmin);
+  }
+  // 更新房管按钮可见性(房主、管理员或房间管理可见)
+  function updateRoomAdminBtn() {
+    roomAdminBtnOpen.classList.toggle('show', (isOwner || isAdmin || isRoomManager) && !!currentRoom);
+    actionRoomAdminBtn.style.display = (isOwner || isAdmin || isRoomManager) && !!currentRoom ? 'flex' : 'none';
+  }
+  // 渲染房间列表
+  function renderRoomsList() {
+    roomsListEl.innerHTML = '';
+    // 按关键字过滤(匹配房间名或房主)
+    var kw = roomsSearchKw.trim().toLowerCase();
+    var filtered = kw ? rooms.filter(function(r) {
+      return (r.name || '').toLowerCase().indexOf(kw) >= 0 ||
+             (r.owner || '').toLowerCase().indexOf(kw) >= 0;
+    }) : rooms;
+    if (!filtered.length) {
+      roomsListEl.innerHTML = '<div class="rooms-empty">' + (kw ? '没有匹配的房间' : '暂无房间') + '</div>';
+      return;
+    }
+    filtered.forEach(function(r) {
+      var card = document.createElement('div');
+      card.className = 'room-card' + (r.id === currentRoomId ? ' current' : '');
+      // 图标:有密码显示锁,私密显示钥匙,否则气泡
+      var icon = document.createElement('span');
+      icon.className = 'r-icon';
+      icon.textContent = r.has_password ? '🔒' : (r.is_private ? '🔐' : '💬');
+      var info = document.createElement('div');
+      info.className = 'r-info';
+      var nameWrap = document.createElement('div');
+      nameWrap.className = 'r-name';
+      var nameSpan = document.createElement('span'); nameSpan.textContent = r.name;
+      nameWrap.appendChild(nameSpan);
+      var typeTag = document.createElement('span');
+      typeTag.className = 'r-tag ' + (r.is_private ? 'private' : 'public');
+      typeTag.textContent = r.is_private ? '私密' : '公开';
+      nameWrap.appendChild(typeTag);
+      if (r.idle_timeout_hours && !r.is_private) {
+        var idleTag = document.createElement('span');
+        idleTag.className = 'r-tag idle';
+        idleTag.textContent = '⏱ 房间持续 ' + idleMinutes(r.idle_timeout_hours) + ' 分钟无人后关闭并清理';
+        nameWrap.appendChild(idleTag);
+      }
+      if (r.id === currentRoomId) {
+        var curTag = document.createElement('span');
+        curTag.className = 'r-tag cur'; curTag.textContent = '当前';
+        nameWrap.appendChild(curTag);
+      }
+      var meta = document.createElement('div');
+      meta.className = 'r-meta';
+      meta.textContent = '房主: ' + (r.owner || '系统') + ' · 在线 ' + (r.online || 0);
+      info.appendChild(nameWrap); info.appendChild(meta);
+      var actions = document.createElement('div');
+      actions.className = 'r-actions';
+      if (r.id !== currentRoomId) {
+        var joinBtn = document.createElement('button');
+        joinBtn.className = 'r-btn'; joinBtn.textContent = '加入';
+        joinBtn.addEventListener('click', function() { tryJoinRoom(r); });
+        actions.appendChild(joinBtn);
+      }
+      card.appendChild(icon); card.appendChild(info); card.appendChild(actions);
+      roomsListEl.appendChild(card);
+    });
+  }
+  // 尝试加入房间:有密码则弹密码框,否则直接加入
+  function tryJoinRoom(room) {
+    if (room.has_password) {
+      joinRoomTarget = room;
+      jrTitle.textContent = '加入房间: ' + room.name;
+      jrPassword.value = ''; jrErr.textContent = '';
+      joinRoomModal.classList.add('show');
+      autoFocus(jrPassword);
+    } else {
+      safeSend({ type: 'join_room', room_id: room.id, password: '' });
+      roomsPanel.classList.remove('show');
+    }
+  }
+
+  // 房间列表按钮:打开时刷新列表
+  roomsBtnOpen.addEventListener('click', function() {
+    roomsPanel.classList.add('show');
+    safeSend({ type: 'list_rooms' });
+    autoFocus(roomsSearch);
+  });
+  roomsClose.addEventListener('click', function() { roomsPanel.classList.remove('show'); });
+  roomsPanel.addEventListener('click', function(e) { if (e.target === roomsPanel) roomsPanel.classList.remove('show'); });
+  // 房间搜索框:实时过滤
+  roomsSearch.addEventListener('input', function() {
+    roomsSearchKw = roomsSearch.value;
+    renderRoomsList();
+  });
+
+  // 创建房间
+  createRoomBtn.addEventListener('click', function() {
+    crName.value = ''; crPassword.value = ''; crPrivate.checked = false; crIdle.value = '0'; crIdleWrap.style.display = ''; crErr.textContent = '';
+    createRoomModal.classList.add('show');
+    autoFocus(crName);
+  });
+  crClose.addEventListener('click', function() { createRoomModal.classList.remove('show'); });
+  createRoomModal.addEventListener('click', function(e) { if (e.target === createRoomModal) createRoomModal.classList.remove('show'); });
+  crSubmit.addEventListener('click', function() {
+    var name = crName.value.trim();
+    if (!name) { crErr.textContent = '请输入房间名称'; return; }
+    var idleMin = parseFloat(crIdle.value);
+    if (isNaN(idleMin) || idleMin < 0) idleMin = 0;
+    if (idleMin > 10080) { crErr.textContent = '空闲清理时间不能超过 7 天(10080 分钟)'; return; }
+    crErr.textContent = '';
+    safeSend({
+      type: 'create_room',
+      name: name,
+      password: crPassword.value,
+      is_private: crPrivate.checked,
+      // 前端以分钟输入,服务端按小时(小数)存储
+      idle_timeout_hours: (crPrivate.checked || idleMin <= 0) ? null : (idleMin / 60)
+    });
+  });
+  crName.addEventListener('keydown', function(e) { if (e.key === 'Enter') { e.preventDefault(); crPassword.focus(); } });
+  crPassword.addEventListener('keydown', function(e) { if (e.key === 'Enter') { e.preventDefault(); crSubmit.click(); } });
+
+  // 加入房间(输密码)
+  jrClose.addEventListener('click', function() { joinRoomModal.classList.remove('show'); joinRoomTarget = null; });
+  joinRoomModal.addEventListener('click', function(e) { if (e.target === joinRoomModal) { joinRoomModal.classList.remove('show'); joinRoomTarget = null; } });
+  jrSubmit.addEventListener('click', function() {
+    if (!joinRoomTarget) return;
+    jrErr.textContent = '';
+    safeSend({ type: 'join_room', room_id: joinRoomTarget.id, password: jrPassword.value });
+  });
+  jrPassword.addEventListener('keydown', function(e) { if (e.key === 'Enter') { e.preventDefault(); jrSubmit.click(); } });
+
+  // 房间管理面板
+  roomAdminBtnOpen.addEventListener('click', function() {
+    if (!currentRoom) return;
+    rmName.value = currentRoom.name;
+    rmPassword.value = ''; // 不回显密码
+    rmPrivate.checked = !!currentRoom.is_private;
+    rmMuteSwitch.classList.toggle('on', roomMuted);
+    rmMuteLabel.textContent = roomMuted ? '已开启' : '关闭';
+    rmTransfer.value = '';
+    // 公共大厅:仅保留禁言,隐藏改名/改密/类型/转让/删除,避免误操作
+    var isDefaultRoom = currentRoomId === 'default';
+    var hide = isDefaultRoom ? 'none' : '';
+    rmSecName.style.display = hide;
+    rmSecPassword.style.display = hide;
+    rmSecType.style.display = hide;
+    rmUpdateBtn.style.display = hide;
+    rmDivider1.style.display = hide;
+    rmSecTransfer.style.display = hide;
+    rmDivider2.style.display = hide;
+    rmSecDanger.style.display = hide;
+    // 管理成员列表(仅房主/管理员可添加/取消,房间"管理"只读)
+    renderRoomManagers();
+    if (rmManagerAddRow) rmManagerAddRow.style.display = (isOwner || isAdmin) ? 'flex' : 'none';
+    roomAdminPanel.classList.add('show');
+  });
+  raClose.addEventListener('click', function() { roomAdminPanel.classList.remove('show'); });
+  roomAdminPanel.addEventListener('click', function(e) { if (e.target === roomAdminPanel) roomAdminPanel.classList.remove('show'); });
+  // 保存房间信息
+  rmUpdateBtn.addEventListener('click', function() {
+    var name = rmName.value.trim();
+    if (!name) { alert('房间名称不能为空'); return; }
+    safeSend({
+      type: 'update_room',
+      room_id: currentRoomId,
+      name: name,
+      password: rmPassword.value,
+      is_private: rmPrivate.checked
+    });
+  });
+  // 房间全员禁言开关
+  rmMuteSwitch.addEventListener('click', function() {
+    safeSend({ type: 'room_mute', room_id: currentRoomId, muted: !roomMuted });
+  });
+  // 转让房主
+  rmTransferBtn.addEventListener('click', function() {
+    var newOwner = rmTransfer.value.trim();
+    if (!newOwner) { alert('请输入新房主昵称'); return; }
+    if (newOwner === myName) { alert('不能转让给自己'); return; }
+    if (!confirm('确认将房主转让给 ' + newOwner + '?\n转让后你将不再拥有房主权限。')) return;
+    safeSend({ type: 'transfer_owner', room_id: currentRoomId, new_owner: newOwner });
+  });
+  // 删除房间(二次确认)
+  rmDeleteBtn.addEventListener('click', function() {
+    if (!currentRoom) return;
+    if (!confirm('确认删除房间 "' + currentRoom.name + '"?\n此操作不可恢复,所有消息将被清除。')) return;
+    if (!confirm('再次确认:真的要删除这个房间吗?')) return;
+    safeSend({ type: 'delete_room', room_id: currentRoomId });
+    roomAdminPanel.classList.remove('show');
+  });
+  // 添加房间"管理"
+  rmManagerAdd.addEventListener('click', function() {
+    if (!currentRoom) return;
+    var nm = rmManagerName.value.trim();
+    if (!nm) { alert('请输入用户昵称'); return; }
+    if (nm === myName) { alert('不能设置自己为房间管理'); return; }
+    safeSend({ type: 'set_room_manager', room_id: currentRoomId, name: nm, on: true });
+    rmManagerName.value = '';
+  });
+  rmManagerName.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') rmManagerAdd.click();
+  });
+
+  // ---------- 管理员列表(主管理员) ----------
+  function renderAdminList(list) {
+    adminListEl.innerHTML = '';
+    if (!list.length) {
+      adminListEl.innerHTML = '<li style="color:var(--text-muted);padding:10px 14px;cursor:default">暂无管理员</li>';
+      return;
+    }
+    list.forEach(function(a) {
+      var li = document.createElement('li');
+      li.style.cssText = 'padding:8px 14px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border);font-size:13px';
+      var nameSpan = document.createElement('span');
+      nameSpan.textContent = a.name;
+      nameSpan.style.fontWeight = '600';
+      li.appendChild(nameSpan);
+      // 子管理员显示 username
+      if (!a.is_super && a.username) {
+        var unameSpan = document.createElement('span');
+        unameSpan.style.cssText = 'font-size:11px;color:var(--text-muted)';
+        unameSpan.textContent = '@' + a.username;
+        li.appendChild(unameSpan);
+      }
+      var tag = document.createElement('span');
+      if (a.is_super) {
+        tag.style.cssText = 'font-size:10px;color:#fff;background:var(--admin);padding:1px 6px;border-radius:6px;font-weight:600';
+        tag.textContent = '主管理员';
+      } else {
+        tag.style.cssText = 'font-size:10px;color:var(--accent);background:rgba(59,130,246,0.12);padding:1px 6px;border-radius:6px;font-weight:600';
+        tag.textContent = '子管理员';
+      }
+      li.appendChild(tag);
+      if (a.created_at) {
+        var time = document.createElement('span');
+        time.style.cssText = 'font-size:11px;color:var(--text-muted);margin-left:auto';
+        var d = new Date(a.created_at);
+        time.textContent = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+        li.appendChild(time);
+      }
+      // 主管理员不可删除,子管理员可删除
+      if (!a.is_super) {
+        var delBtn = document.createElement('button');
+        delBtn.style.cssText = 'font-size:11px;color:var(--danger);background:rgba(239,68,68,0.1);padding:2px 8px;border-radius:6px;cursor:pointer;border:none;font-weight:600' + (a.created_at ? '' : ';margin-left:auto');
+        delBtn.textContent = '撤销';
+        delBtn.addEventListener('click', function() {
+          if (!confirm('确认撤销子管理员 "' + a.name + '" 的权限?\n该用户的所有活跃连接将被强制下线。')) return;
+          safeSend({ type: 'admin_remove_admin', username: a.username });
+        });
+        li.appendChild(delBtn);
+      }
+      adminListEl.appendChild(li);
+    });
+  }
+  // 添加子管理员(通过 username 升级已注册用户)
+  addAdminBtn.addEventListener('click', function() {
+    var username = newAdminName.value.trim();
+    if (!username) { alert('请输入用户名'); return; }
+    safeSend({ type: 'admin_add_admin', username: username });
+  });
+  newAdminName.addEventListener('keydown', function(e) { if (e.key === 'Enter') { e.preventDefault(); addAdminBtn.click(); } });
+
+  function renderPrivatePairs(pairs) {
+    privatePairsList.innerHTML = '';
+    if (!pairs.length) {
+      privatePairsList.innerHTML = '<li style="color:var(--text-muted);cursor:default">暂无私聊记录</li>';
+      return;
+    }
+    pairs.forEach(function(p) {
+      var li = document.createElement('li');
+      li.textContent = p.a + ' ↔ ' + p.b;
+      li.addEventListener('click', function() {
+        safeSend({ type: 'admin_private_history', a: p.a, b: p.b });
+      });
+      privatePairsList.appendChild(li);
+    });
+  }
+  function showAdminPrivateHistory(a, b, data) {
+    adminPrivateView.style.display = 'block';
+    apvTitle.textContent = a + ' 与 ' + b + ' 的私聊记录：';
+    apvMessages.innerHTML = '';
+    if (!data.length) { apvMessages.innerHTML = '<div style="color:var(--text-muted)">无消息</div>'; return; }
+    data.forEach(function(m) {
+      var row = document.createElement('div');
+      var t = formatTime(m.time);
+      var senderLabel = m.sender === a ? a : b;
+      if (m.revoked) {
+        var revokeWho = m.revoked_by ? ' (' + m.revoked_by + ' 撤回)' : '';
+        row.innerHTML = '<span style="color:var(--text-muted)">[' + t + '] 消息已撤回' + revokeWho + '</span>';
+      } else {
+        var contentText = m.content;
+        if (m.content_type === 'image' && m.file) contentText = '[图片] ' + m.file.name;
+        else if (m.content_type === 'file' && m.file) contentText = '[文件] ' + m.file.name;
+        row.innerHTML = '<span style="color:var(--accent)">[' + t + '] ' + escapeHtmlText(senderLabel) + '：</span>' + escapeHtmlText(contentText);
+      }
+      row.style.marginBottom = '4px';
+      apvMessages.appendChild(row);
+    });
+  }
+
+  // ---------- 启动 ----------
+  connect(); if (!isMobile()) nameInput.focus();
+})();
+</script>
+</body>
+</html>
