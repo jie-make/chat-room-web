@@ -1,0 +1,20 @@
+{
+  "name": "lightweight-chat",
+  "version": "1.0.0",
+  "description": "轻量化即时文字聊天程序（Node.js + WebSocket）",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=14"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1107.0",
+    "bcrypt": "^6.0.0",
+    "dotenv": "^16.4.5",
+    "mysql2": "^3.11.0",
+    "ws": "^8.18.0"
+  }
+}
